@@ -1,0 +1,150 @@
+from __future__ import annotations
+
+import asyncio
+import json
+from typing import Any
+
+import httpx
+from pydantic import ValidationError
+
+from app.config import Settings
+from app.dialogue.field_schema import ExtractedFields
+from app.dialogue.language_policy import LanguageProfile
+from app.dialogue.state_machine import ConversationState
+
+
+class ProviderError(RuntimeError):
+    """An external provider failed or returned an unusable response."""
+
+
+class NvidiaClient:
+    """Small async NVIDIA NIM client with bounded retries.
+
+    NVIDIA NIM (https://integrate.api.nvidia.com/v1) is OpenAI-compatible —
+    same chat.completions request/response shape as OpenAI, just a
+    different base URL and API key. Verified against NVIDIA's public docs.
+    Free-tier accounts get a best-effort rate limit (~40 RPM per model)
+    with no guaranteed SLA — fine for hackathon dev/demo volume, not
+    validated under load.
+    """
+
+    def __init__(self, settings: Settings, model: str) -> None:
+        self._settings = settings
+        self._url = settings.nvidia_api_url
+        self._model = model
+
+    async def chat(self, *, system: str, user: str, max_tokens: int = 512) -> dict[str, Any]:
+        if not self._settings.nvidia_api_key:
+            raise ProviderError("NVIDIA_API_KEY is not configured")
+        headers = {
+            "Authorization": f"Bearer {self._settings.nvidia_api_key}",
+            "Content-Type": "application/json",
+        }
+        payload = {
+            "model": self._model,
+            "max_tokens": max_tokens,
+            "temperature": 0.2,
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+        }
+        last_error: Exception | None = None
+        for attempt in range(self._settings.external_max_retries + 1):
+            try:
+                timeout = httpx.Timeout(self._settings.external_timeout_seconds)
+                async with httpx.AsyncClient(timeout=timeout) as client:
+                    response = await client.post(self._url, headers=headers, json=payload)
+                if response.status_code >= 500 or response.status_code == 429:
+                    raise httpx.HTTPStatusError(
+                        f"NVIDIA NIM temporary HTTP {response.status_code}",
+                        request=response.request,
+                        response=response,
+                    )
+                response.raise_for_status()
+                data = response.json()
+                if not isinstance(data, dict):
+                    raise ProviderError("NVIDIA NIM response was not an object")
+                return data
+            except (httpx.HTTPError, ProviderError) as exc:
+                last_error = exc
+                if attempt >= self._settings.external_max_retries:
+                    break
+                await _backoff(attempt)
+        raise ProviderError("NVIDIA NIM request failed") from last_error
+
+    async def chat_text(self, *, system: str, user: str, max_tokens: int = 512) -> str:
+        """Convenience wrapper: chat() + text extraction in one call."""
+        return _text_from_nvidia(await self.chat(system=system, user=user, max_tokens=max_tokens))
+
+
+async def _backoff(attempt: int) -> None:
+    await asyncio.sleep(min(0.25 * (2**attempt), 1.0))
+
+
+def _text_from_nvidia(response: dict[str, Any]) -> str:
+    choices = response.get("choices")
+    if not isinstance(choices, list) or not choices:
+        raise ProviderError("NVIDIA NIM response has no choices")
+    first = choices[0]
+    message = first.get("message") if isinstance(first, dict) else None
+    text = message.get("content") if isinstance(message, dict) else None
+    if not isinstance(text, str) or not text.strip():
+        raise ProviderError("NVIDIA NIM response contains no text")
+    return text.strip()
+
+
+class NvidiaExtractionProvider:
+    """Extracts only the configured field names plus language metadata."""
+
+    def __init__(self, client: NvidiaClient, allowed_fields: tuple[str, ...]) -> None:
+        self._client = client
+        self._allowed_fields = allowed_fields
+
+    async def extract(self, transcript: str) -> ExtractedFields:
+        field_list = ", ".join(self._allowed_fields) if self._allowed_fields else "(none configured)"
+        system = (
+            "You are a structured data extractor for a health triage voice agent. "
+            "Do not diagnose, prescribe, or invent facts. Extract only information explicitly "
+            "present in the patient utterance. Return ONLY valid JSON with this shape: "
+            '{"fields": {"field_name": "value"}, "detected_language": '
+            '{"languages": ["iso-like codes"], "confidence": 0.0}}. '
+            f"Allowed field names: {field_list}. Unknown information must be omitted."
+        )
+        raw = await self._client.chat_text(system=system, user=transcript, max_tokens=400)
+        try:
+            data = json.loads(_strip_code_fence(raw))
+            return ExtractedFields.model_validate(data)
+        except (json.JSONDecodeError, ValidationError, TypeError) as exc:
+            raise ProviderError("NVIDIA NIM extraction returned invalid structured data") from exc
+
+
+class NvidiaResponseGenerator:
+    def __init__(self, client: NvidiaClient) -> None:
+        self._client = client
+
+    async def generate(
+        self,
+        *,
+        transcript: str,
+        fields: ExtractedFields,
+        state: ConversationState,
+        language_profile: LanguageProfile,
+    ) -> str:
+        languages = ", ".join(language_profile.dominant_languages()) or "match the patient"
+        system = (
+            "You are a conversational health triage assistant. Do not diagnose or prescribe. "
+            "Ask concise questions needed for triage. If escalation is required, clearly tell "
+            "the patient that a healthcare professional needs to be contacted now. Respond in "
+            f"the patient's established language style: {languages}. Current state: {state.value}."
+        )
+        user = f"Patient said: {transcript}\nStructured fields: {json.dumps(fields.fields, ensure_ascii=False)}"
+        return await self._client.chat_text(system=system, user=user, max_tokens=300)
+
+
+def _strip_code_fence(value: str) -> str:
+    text = value.strip()
+    if text.startswith("```") and text.endswith("```"):
+        lines = text.splitlines()
+        return "\n".join(lines[1:-1]).strip()
+    return text

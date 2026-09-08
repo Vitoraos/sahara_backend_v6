@@ -1,0 +1,15 @@
+fastapi>=0.115,<1.0
+uvicorn[standard]>=0.34,<1.0
+pydantic>=2.10,<3.0
+pydantic-settings>=2.7,<3.0
+supabase>=2.13,<3.0
+redis>=5.2,<6.0
+httpx>=0.28,<1.0
+pytest>=8.3,<9.0
+pytest-asyncio>=0.25,<1.0
+ruff>=0.9,<1.0
+mypy>=1.15,<2.0
+websockets>=15.0,<16.0
+webrtcvad>=2.0.0
+pipecat-ai[websocket]==1.8.1
+python-multipart>=0.0.20,<1.0
