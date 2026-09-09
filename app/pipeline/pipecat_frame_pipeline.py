@@ -9,6 +9,11 @@ from dataclasses import dataclass
 from typing import Any, AsyncIterator
 from uuid import UUID
 
+try:
+    from pipecat.frames.frames import DataFrame
+except ImportError:
+    DataFrame = object  # type: ignore
+
 from app.config import Settings
 from app.pipeline.pipecat_pipeline import ConversationContext, ConversationPipeline
 from app.integrations.conversation_repository import ConversationRepository
@@ -16,6 +21,31 @@ from app.pipeline.intron_stream import IntronSTTStream
 from app.pipeline.intron_tts import IntronTTSStream
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class EncodedTTSAudioFrame(DataFrame):
+    """Encoded vendor audio; preserved because Intron currently exposes WAV/MP3.
+
+    TTSAudioRawFrame is intentionally not used for encoded WAV/MP3 bytes: that
+    frame means raw PCM. The WebSocket adapter sends this encoded payload to the
+    browser, avoiding corrupt playback and avoiding a server-side transcode hop.
+    """
+
+    audio: bytes
+    audio_format: str
+
+
+@dataclass
+class TTSStreamChunkFrame(DataFrame):
+    """Internal frame for streaming text chunks from LLM."""
+    text: str
+
+
+@dataclass
+class TTSStreamEndFrame(DataFrame):
+    """Internal frame signaling end of LLM response."""
+    pass
 
 
 @dataclass(frozen=True)
@@ -84,28 +114,6 @@ def build_pipecat_pipeline(
                 "urgency_tier": self.urgency_tier,
                 "triage_summary": self.triage_summary,
             }
-
-    @dc_dataclass
-    class EncodedTTSAudioFrame(DataFrame):
-        """Encoded vendor audio; preserved because Intron currently exposes WAV/MP3.
-
-        TTSAudioRawFrame is intentionally not used for encoded WAV/MP3 bytes: that
-        frame means raw PCM. The WebSocket adapter sends this encoded payload to the
-        browser, avoiding corrupt playback and avoiding a server-side transcode hop.
-        """
-
-        audio: bytes
-        audio_format: str
-
-    @dc_dataclass
-    class TTSStreamChunkFrame(DataFrame):
-        """Internal frame for streaming text chunks from LLM."""
-        text: str
-
-    @dc_dataclass
-    class TTSStreamEndFrame(DataFrame):
-        """Internal frame signaling end of LLM response."""
-        pass
 
     context = ConversationContext(
         turn_number=initial_turn_number,
@@ -221,7 +229,7 @@ def build_pipecat_pipeline(
                 return
 
             # Use streaming version to get LLM response chunks
-            turn_result, response_stream = await pipeline_logic.process_turn_stream(frame.text, context)
+            turn_result, chunks = await pipeline_logic.process_turn_stream(frame.text, context)
             
             # Persist the turn data
             try:
@@ -262,43 +270,61 @@ def build_pipecat_pipeline(
                 ),
                 direction,
             )
-            # Push LLM response chunks as streaming frames
-            async for chunk in response_stream:
+            # Stream LLM response chunks to TTS
+            for chunk in chunks:
                 await self.push_frame(TTSStreamChunkFrame(chunk), direction)
             await self.push_frame(TTSStreamEndFrame(), direction)
 
     class IntronTTSProcessor(FrameProcessor):
         def __init__(self) -> None:
             super().__init__(name="intron-tts")
-            self._speech_task: asyncio.Task[Any] | None = None
             self._tts_stream: IntronTTSStream | None = None
+            self._buffer = ""
 
         async def process_frame(self, frame: Any, direction: FrameDirection) -> None:
             await super().process_frame(frame, direction)
             if isinstance(frame, StartFrame):
                 await self.push_frame(frame, direction)
+                self._buffer = ""
                 return
             if isinstance(frame, InterruptionFrame):
                 await self._cancel_speech()
                 await self.push_frame(frame, direction)
                 return
             if isinstance(frame, TTSStreamChunkFrame):
-                # Buffer LLM text and send to Intron TTS when ready
-                text = frame.text
+                # Buffer LLM text chunks
                 if self._tts_stream is None:
-                    self._tts_stream = IntronTTSStream(settings.intron_tts_config)
-                await self._tts_stream.send_text(text)
+                    self._tts_stream = tts
+                self._buffer += frame.text
+                # Send when buffer is large enough (10-100 chars)
+                while len(self._buffer) >= 20:
+                    # Take up to 80 chars at a time
+                    chunk = self._buffer[:80]
+                    self._buffer = self._buffer[80:]
+                    chunk_id = await self._tts_stream.send_text(chunk)
+                    audio = await self._tts_stream.fetch_audio(chunk_id)
+                    await self.push_frame(
+                        EncodedTTSAudioFrame(
+                            audio=audio,
+                            audio_format=settings.intron_tts_output_audio_format,
+                        ),
+                        direction,
+                    )
                 return
             if isinstance(frame, TTSStreamEndFrame):
-                # Finalize streaming and commit audio
-                if self._tts_stream is not None:
-                    # Wait for any pending text to be processed
-                    # Intron's iter_audio_blocking doesn't exist, so we rely on
-                    # the streaming handler to push any remaining chunks
-                    # Actually, we need to flush remaining buffer
-                    # Since we're blocking, let's just close the stream
-                    pass
-                # Push audio chunks from the streaming pipeline...
+                # Flush remaining buffer
+                if self._buffer.strip():
+                    chunk_id = await self._tts_stream.send_text(self._buffer)
+                    audio = await self._tts_stream.fetch_audio(chunk_id)
+                    await self.push_frame(
+                        EncodedTTSAudioFrame(
+                            audio=audio,
+                            audio_format=settings.intron_tts_output_audio_format,
+                        ),
+                        direction,
+                    )
+                await self._tts_stream.commit()
+                await self.push_frame(TTSAudioEndFrame(), direction)
                 return
             await self.push_frame(frame, direction)
 
@@ -324,8 +350,6 @@ def build_pipecat_pipeline(
             task = self._speech_task
             if task and not task.done():
                 task.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await task
             self._speech_task = None
 
         async def cleanup(self) -> None:

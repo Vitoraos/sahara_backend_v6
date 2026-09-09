@@ -12,7 +12,7 @@ from fastapi.responses import Response
 from app.config import Settings, get_settings
 from app.dialogue.danger_matcher import DangerMatcher
 from app.dialogue.field_schema import RequiredFieldPolicy
-from app.dialogue.llm_provider import NvidiaClient, NvidiaExtractionProvider, NvidiaResponseGenerator
+from app.dialogue.llm_provider import OpenRouterClient, OpenRouterExtractionProvider, OpenRouterResponseGenerator
 from app.dialogue.response_generation import SafeFallbackResponseGenerator
 from app.dialogue.translation import NllbTranslationProvider
 from app.integrations.conversation_repository import ConversationRepository
@@ -198,10 +198,10 @@ def _build_pipeline(settings: Settings) -> ConversationPipeline:
         extractor: Any = _UnavailableExtractor()
         responder: Any = SafeFallbackResponseGenerator()
     else:
-        extraction_client = NvidiaClient(settings, model=settings.openrouter_extraction_model)
-        response_client = NvidiaClient(settings, model=settings.openrouter_response_model)
-        extractor = NvidiaExtractionProvider(extraction_client, policy.fields)
-        responder = NvidiaResponseGenerator(response_client)
+        extraction_client = OpenRouterClient(settings, model=settings.openrouter_extraction_model)
+        response_client = OpenRouterClient(settings, model=settings.openrouter_response_model)
+        extractor = OpenRouterExtractionProvider(extraction_client, policy.fields)
+        responder = OpenRouterResponseGenerator(response_client)
     return ConversationPipeline(
         extraction_provider=extractor,
         translation_provider=NllbTranslationProvider(settings),

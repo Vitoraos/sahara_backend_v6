@@ -126,11 +126,11 @@ class ConversationPipeline:
         self,
         transcript: str,
         context: ConversationContext,
-    ) -> tuple[PipelineTurn, AsyncIterator[str]]:
-        """Process one turn and stream the LLM response text as it arrives.
+    ) -> tuple[PipelineTurn, list[str]]:
+        """Process one turn and prepare LLM response text for streaming.
 
-        Returns the final PipelineTurn (for persistence and UI) plus an async
-        iterator that yields response text chunks as the LLM produces them.
+        Returns the final PipelineTurn (with full response_text for persistence/UI)
+        plus a list of text chunks to stream to TTS.
         """
         context.turn_number += 1
         extracted, danger_fired, translated = await extract_and_safety_check(
@@ -156,30 +156,31 @@ class ConversationPipeline:
         signal = _language_signal(extracted)
         context.profile.update(signal)
 
-        async def response_stream() -> AsyncIterator[str]:
-            try:
-                async for chunk in self._response_generator.generate_stream(
-                    transcript=transcript,
-                    fields=accumulated,
-                    state=decision.state,
-                    language_profile=context.profile,
-                ):
-                    yield chunk
-            except Exception as exc:
-                # Fail-safe: any mid-turn failure escalates. Never silently continue.
-                logger = logging.getLogger(__name__)
-                logger.exception(
-                    "conversation turn failed; escalating",
-                    extra={"turn_number": context.turn_number, "error_type": type(exc).__name__},
-                )
-                context.state = ConversationState.ESCALATE
-                yield "I need to connect you with a healthcare professional now. Please stay on the line."
+        # Collect chunks from the generator and compute full response text
+        chunks: list[str] = []
+        try:
+            async for chunk in self._response_generator.generate_stream(
+                transcript=transcript,
+                fields=accumulated,
+                state=decision.state,
+                language_profile=context.profile,
+            ):
+                chunks.append(chunk)
+        except Exception as exc:
+            # Fail-safe: any mid-turn failure escalates. Never silently continue.
+            logger = logging.getLogger(__name__)
+            logger.exception(
+                "conversation turn failed; escalating",
+                extra={"turn_number": context.turn_number, "error_type": type(exc).__name__},
+            )
+            context.state = ConversationState.ESCALATE
+            chunks = ["I need to connect you with a healthcare professional now. Please stay on the line."]
+
+        response_text = "".join(chunks).strip()
 
         match = self._danger_matcher.match(translated)
         urgency = "RED" if danger_fired else ("AMBER" if decision.state == ConversationState.TRIAGE else None)
         summary = _triage_summary(accumulated, match.matched_phrases) if decision.state == ConversationState.TRIAGE else None
-        final_response = "".join(response_stream)
-        response_text = final_response.strip()
         return PipelineTurn(
             transcript=transcript,
             translated_text=translated,
@@ -190,7 +191,7 @@ class ConversationPipeline:
             response_text=response_text,
             urgency_tier=urgency,
             triage_summary=summary,
-        ), response_stream()
+        ), chunks
 
 
 

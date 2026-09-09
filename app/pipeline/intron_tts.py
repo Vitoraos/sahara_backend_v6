@@ -170,10 +170,13 @@ class IntronTTSStream:
                     yield await self.fetch_audio(chunk_id)
             # Flush remaining buffer
             if buffer.strip():
-                # Pad short text to minimum 10 chars if possible
+                # Intron requires 10-100 chars per chunk
                 if len(buffer) < 10:
-                    pass  # Intron handles short text on commit
-                chunk_id = await self.send_text(buffer)
+                    # Pad with trailing characters or append to previous chunk
+                    # For now, send as-is - Intron may accept short final text
+                    chunk_id = await self.send_text(buffer + " ...")
+                else:
+                    chunk_id = await self.send_text(buffer)
                 yield await self.fetch_audio(chunk_id)
             await self.commit()
         finally:

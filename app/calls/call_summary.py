@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-from app.dialogue.llm_provider import NvidiaClient
+from app.dialogue.llm_provider import OpenRouterClient
 
 
 class CallSummaryService:
     """Extracts key points from a doctor-patient call transcript for the
     doctor's own record — a structured summary, not a verbatim dump."""
 
-    def __init__(self, client: NvidiaClient) -> None:
+    def __init__(self, client: OpenRouterClient) -> None:
         self._client = client
 
     async def summarize(self, transcript: str) -> str:

@@ -12,7 +12,7 @@ from app.benchmark.metrics import clinical_entity_accuracy, word_error_rate
 from app.benchmark.providers import STTBenchmarkProvider
 from app.config import Settings, get_settings
 from app.dialogue.field_schema import RequiredFieldPolicy
-from app.dialogue.llm_provider import NvidiaClient, NvidiaExtractionProvider
+from app.dialogue.llm_provider import OpenRouterClient, OpenRouterExtractionProvider
 
 logger = logging.getLogger(__name__)
 
@@ -40,8 +40,8 @@ async def run_benchmark(
     policy = RequiredFieldPolicy(
         fields=tuple(x.strip() for x in settings.required_triage_fields.split(",") if x.strip())
     )
-    extractor = NvidiaExtractionProvider(
-        NvidiaClient(settings, model=settings.openrouter_extraction_model), policy.fields
+    extractor = OpenRouterExtractionProvider(
+        OpenRouterClient(settings, model=settings.openrouter_extraction_model), policy.fields
     )
 
     results: list[BenchmarkResult] = []

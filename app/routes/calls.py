@@ -9,7 +9,7 @@ from app.calls.call_recorder import CallRecorder, ConsentRequiredError
 from app.calls.call_summary import CallSummaryService
 from app.calls.click_to_call import ClickToCallService
 from app.config import Settings, get_settings
-from app.dialogue.llm_provider import NvidiaClient
+from app.dialogue.llm_provider import OpenRouterClient
 from app.integrations.conversation_repository import ConversationRepository
 from app.routes.deps import get_repository, require_clinician_id, require_patient_id
 
@@ -106,7 +106,7 @@ async def summarize_call(
     """
     if not settings.openrouter_api_key:
         raise HTTPException(status_code=503, detail="OPENROUTER_API_KEY is not configured")
-    client = NvidiaClient(settings, model=settings.openrouter_summary_model)
+    client = OpenRouterClient(settings, model=settings.openrouter_summary_model)
     summary_service = CallSummaryService(client)
     summary = await summary_service.summarize(body.transcript)
     await repository.update_call_recording(
