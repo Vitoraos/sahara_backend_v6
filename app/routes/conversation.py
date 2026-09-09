@@ -15,7 +15,6 @@ from app.dialogue.danger_matcher import DangerMatcher
 from app.dialogue.field_schema import ExtractedFields, RequiredFieldPolicy
 from app.dialogue.llm_provider import OpenRouterClient, OpenRouterExtractionProvider, OpenRouterResponseGenerator
 from app.dialogue.response_generation import SafeFallbackResponseGenerator
-from app.dialogue.translation import NllbTranslationProvider
 from app.integrations.conversation_repository import ConversationRepository
 from app.integrations.supabase_client import create_supabase
 from app.pipeline.intron_stream import IntronConfig, IntronSTTStream
@@ -44,7 +43,6 @@ def build_pipeline(settings: Settings) -> ConversationPipeline:
         responder = SafeFallbackResponseGenerator()
     return ConversationPipeline(
         extraction_provider=extractor,
-        translation_provider=NllbTranslationProvider(settings),
         danger_matcher=danger_matcher,
         response_generator=responder,
         required_fields_checker=required_policy.is_complete,

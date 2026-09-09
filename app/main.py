@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
 from app.routes.appointments import router as appointments_router
@@ -13,6 +14,16 @@ from app.routes.voice_webhook import router as voice_router
 settings = get_settings()
 
 app = FastAPI(title=settings.app_name, version='0.1.0')
+
+# ponytail: one allow-list from env. Split per-origin if a route needs wider
+# access than the others; a global list is the minimum that works.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[o.strip() for o in settings.cors_allowed_origins.split(",") if o.strip()],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 app.include_router(health_router, prefix=settings.api_prefix)
 app.include_router(conversation_router, prefix=settings.api_prefix)
 app.include_router(voice_router, prefix=settings.api_prefix)

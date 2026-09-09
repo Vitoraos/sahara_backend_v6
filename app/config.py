@@ -17,7 +17,8 @@ class Settings(BaseSettings):
     supabase_anon_key: str = Field(default='', description='Supabase anon/public key')
     supabase_service_role_key: str = Field(default='', description='Server-only Supabase service role key')
 
-    redis_url: str = 'redis://localhost:6379/0'
+    redis_url: str = ''
+    cors_allowed_origins: str = ''
 
     intron_stt_endpoint: str = 'wss://infer.voice.intron.io/stt/v1/stream'
     intron_stt_api_key: str = ''
@@ -31,8 +32,6 @@ class Settings(BaseSettings):
     openrouter_extraction_model: str = 'meta-llama/llama-3.3-70b-instruct'
     openrouter_response_model: str = 'meta-llama/llama-3.3-70b-instruct'
     openrouter_summary_model: str = 'meta-llama/llama-3.3-70b-instruct'
-    translation_api_url: str = ''
-    translation_api_key: str = ''
     africas_talking_username: str = ''
     africas_talking_api_key: str = ''
     intron_tts_endpoint: str = 'wss://infer.voice.intron.io/tts/v1/stream'

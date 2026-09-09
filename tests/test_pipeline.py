@@ -3,7 +3,6 @@ import pytest
 from app.dialogue.danger_matcher import DangerMatcher
 from app.dialogue.field_schema import ExtractedFields
 from app.dialogue.response_generation import SafeFallbackResponseGenerator
-from app.dialogue.translation import TranslationProvider
 from app.pipeline.pipecat_pipeline import ConversationContext, ConversationPipeline
 
 
@@ -12,21 +11,10 @@ class Extractor:
         return ExtractedFields(detected_language={"languages": ["en"]})
 
 
-class Translator:
-    async def to_english(self, transcript: str) -> str:
-        return transcript
-
-
-class BrokenTranslator:
-    async def to_english(self, transcript: str) -> str:
-        raise RuntimeError("translation unavailable")
-
-
 @pytest.mark.asyncio
 async def test_danger_path_reaches_triage():
     pipeline = ConversationPipeline(
         extraction_provider=Extractor(),
-        translation_provider=Translator(),
         danger_matcher=DangerMatcher(("severe bleeding",)),
         response_generator=SafeFallbackResponseGenerator(),
         required_fields_checker=lambda _: False,
@@ -37,16 +25,20 @@ async def test_danger_path_reaches_triage():
 
 
 @pytest.mark.asyncio
-async def test_translation_failure_is_fail_safe():
+async def test_extraction_failure_is_fail_safe():
+    class BrokenExtractor:
+        async def extract(self, transcript: str) -> ExtractedFields:
+            raise RuntimeError("extraction unavailable")
+
     pipeline = ConversationPipeline(
-        extraction_provider=Extractor(),
-        translation_provider=BrokenTranslator(),
+        extraction_provider=BrokenExtractor(),
         danger_matcher=DangerMatcher(("severe bleeding",)),
         response_generator=SafeFallbackResponseGenerator(),
         required_fields_checker=lambda _: False,
     )
     result = await pipeline.process_turn("anything", ConversationContext())
     assert result.state.value == "ESCALATE"
+
 
 class IncrementalExtractor:
     def __init__(self):
@@ -64,7 +56,6 @@ async def test_required_fields_accumulate_across_turns():
     extractor = IncrementalExtractor()
     pipeline = ConversationPipeline(
         extraction_provider=extractor,
-        translation_provider=Translator(),
         danger_matcher=DangerMatcher(()),
         response_generator=SafeFallbackResponseGenerator(),
         required_fields_checker=lambda fields: all(

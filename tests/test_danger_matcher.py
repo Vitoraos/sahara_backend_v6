@@ -1,7 +1,7 @@
 from app.dialogue.danger_matcher import DangerMatcher
 
 
-def test_danger_matcher_operates_on_translated_english() -> None:
+def test_danger_matcher_matches_raw_transcript() -> None:
     matcher = DangerMatcher(("difficulty breathing", "severe bleeding"))
     result = matcher.match("The patient has difficulty breathing")
     assert result.matched is True

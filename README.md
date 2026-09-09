@@ -8,10 +8,10 @@ This version moves the backend from a scaffold to a provider-backed, persistent,
 
 1. Supabase schema + RLS migration.
 2. Dependency/config boundaries.
-3. Safety-first extraction + translation orchestration.
+3. Safety-first extraction + hardcoded danger-phrase gate.
 4. Configurable clinical required-field policy (field names are not invented; populate them from the authoritative clinical specification).
 5. NVIDIA NIM extraction/response provider with bounded timeout/retry behavior.
-6. Translation gateway adapter designed for an African-language-capable NLLB backend.
+6. Hardcoded English danger-phrase gate (no translation step).
 7. Intron streaming STT WebSocket client.
 8. Intron streaming TTS WebSocket client and audio relay.
 9. Real Pipecat frame pipeline: audio frames → Intron STT → safety/triage frames → Intron TTS → audio frames.
@@ -19,7 +19,7 @@ This version moves the backend from a scaffold to a provider-backed, persistent,
 11. Africa's Talking phone callback channel with explicit recording consent and turn-based recording/STT.
 12. Fail-safe escalation on provider/pipeline/persistence failure.
 
-The backend preserves the project's non-negotiable safety rule: a turn reaches `TRIAGE` only when a danger sign fires or every configured required field is present. Translation and extraction execute concurrently.
+The backend preserves the project's non-negotiable safety rule: a turn reaches `TRIAGE` only when a danger sign fires or every configured required field is present. The raw transcript is matched directly against the hardcoded danger phrases.
 
 ## Required runtime configuration
 
@@ -28,7 +28,8 @@ Copy `.env.example` to `.env` and populate at least:
 - `INTRON_STT_API_KEY`
 - `INTRON_TTS_API_KEY`
 - `NVIDIA_API_KEY`
-- `TRANSLATION_API_URL`
+- `REDIS_URL` (Upstash `rediss://` endpoint)
+- `CORS_ALLOWED_ORIGINS` (comma-separated frontend origins)
 - `REQUIRED_TRIAGE_FIELDS`
 - `DANGER_SIGN_PHRASES`
 - `SUPABASE_SERVICE_ROLE_KEY` (server-only; required for persistence)
@@ -88,7 +89,7 @@ Health check: `GET /api/health`
 pytest -q
 ```
 
-The current suite covers the safety gate, translation fail-safe, language profile, required-field policy, translation response parsing, TTS chunking/audio decoding, and pipeline behavior.
+The current suite covers the safety gate, language profile, required-field policy, TTS chunking/audio decoding, and pipeline behavior.
 
 ## Important implementation boundary
 

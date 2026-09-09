@@ -12,7 +12,6 @@ from app.dialogue.language_policy import LanguageProfile, LanguageSignal
 from app.dialogue.response_generation import ResponseGenerator
 from app.dialogue.state_machine import ConversationState
 from app.dialogue.triage_engine import TriageEngine
-from app.dialogue.translation import TranslationProvider
 
 
 @dataclass
@@ -46,14 +45,12 @@ class ConversationPipeline:
         self,
         *,
         extraction_provider: ExtractionProvider,
-        translation_provider: TranslationProvider,
         danger_matcher: DangerMatcher,
         response_generator: ResponseGenerator,
         required_fields_checker: RequiredFieldsChecker,
         triage_engine: TriageEngine | None = None,
     ) -> None:
         self._extractor = extraction_provider
-        self._translator = translation_provider
         self._danger_matcher = danger_matcher
         self._response_generator = response_generator
         self._required_fields_checker = required_fields_checker
@@ -62,10 +59,9 @@ class ConversationPipeline:
     async def process_turn(self, transcript: str, context: ConversationContext) -> PipelineTurn:
         context.turn_number += 1
         try:
-            extracted, danger_fired, translated = await extract_and_safety_check(
+            extracted, danger_fired, translated_text = await extract_and_safety_check(
                 transcript,
                 extraction_provider=self._extractor,
-                translation_provider=self._translator,
                 danger_matcher=self._danger_matcher,
             )
             # Required fields accumulate across turns. Never let a later turn erase
@@ -90,12 +86,12 @@ class ConversationPipeline:
                 state=decision.state,
                 language_profile=context.profile,
             )
-            match = self._danger_matcher.match(translated)
+            match = self._danger_matcher.match(translated_text)
             urgency = "RED" if danger_fired else ("AMBER" if decision.state == ConversationState.TRIAGE else None)
             summary = _triage_summary(accumulated, match.matched_phrases) if decision.state == ConversationState.TRIAGE else None
             return PipelineTurn(
                 transcript=transcript,
-                translated_text=translated,
+                translated_text=translated_text,
                 extracted_fields=accumulated,
                 danger_sign_fired=danger_fired,
                 danger_phrases=match.matched_phrases,
@@ -133,10 +129,9 @@ class ConversationPipeline:
         plus a list of text chunks to stream to TTS.
         """
         context.turn_number += 1
-        extracted, danger_fired, translated = await extract_and_safety_check(
+        extracted, danger_fired, translated_text = await extract_and_safety_check(
             transcript,
             extraction_provider=self._extractor,
-            translation_provider=self._translator,
             danger_matcher=self._danger_matcher,
         )
         # Required fields accumulate across turns. Never let a later turn erase
@@ -178,12 +173,12 @@ class ConversationPipeline:
 
         response_text = "".join(chunks).strip()
 
-        match = self._danger_matcher.match(translated)
+        match = self._danger_matcher.match(translated_text)
         urgency = "RED" if danger_fired else ("AMBER" if decision.state == ConversationState.TRIAGE else None)
         summary = _triage_summary(accumulated, match.matched_phrases) if decision.state == ConversationState.TRIAGE else None
         return PipelineTurn(
             transcript=transcript,
-            translated_text=translated,
+            translated_text=translated_text,
             extracted_fields=accumulated,
             danger_sign_fired=danger_fired,
             danger_phrases=match.matched_phrases,

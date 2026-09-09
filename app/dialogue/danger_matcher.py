@@ -11,11 +11,11 @@ class DangerMatch:
 
 
 class DangerMatcher:
-    """Deterministic English safety gate with simple negation handling.
+    """Deterministic hardcoded-phrase safety gate with simple negation handling.
 
-    Translation is the only input accepted by the caller. We deliberately keep
-    the final decision deterministic; an LLM may extract context but cannot
-    disable this gate.
+    The raw transcript is matched directly against DANGER_SIGN_PHRASES. We
+    deliberately keep the final decision deterministic; an LLM may extract
+    context but cannot disable this gate.
     """
 
     _NEGATION = re.compile(r"\b(?:no|not|never|without|don't|do not|doesn't|does not|didn't|did not)\b")
@@ -23,8 +23,8 @@ class DangerMatcher:
     def __init__(self, phrases: tuple[str, ...] = ()) -> None:
         self._phrases = tuple(p.strip().lower() for p in phrases if p.strip())
 
-    def match(self, translated_english: str) -> DangerMatch:
-        normalized = re.sub(r"\s+", " ", translated_english.lower()).strip()
+    def match(self, transcript: str) -> DangerMatch:
+        normalized = re.sub(r"\s+", " ", transcript.lower()).strip()
         matches: list[str] = []
         for phrase in self._phrases:
             start = 0
