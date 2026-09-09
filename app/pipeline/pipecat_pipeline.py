@@ -122,6 +122,76 @@ class ConversationPipeline:
                 response_text="I need to connect you with a healthcare professional now. Please stay on the line.",
             )
 
+    async def process_turn_stream(
+        self,
+        transcript: str,
+        context: ConversationContext,
+    ) -> tuple[PipelineTurn, AsyncIterator[str]]:
+        """Process one turn and stream the LLM response text as it arrives.
+
+        Returns the final PipelineTurn (for persistence and UI) plus an async
+        iterator that yields response text chunks as the LLM produces them.
+        """
+        context.turn_number += 1
+        extracted, danger_fired, translated = await extract_and_safety_check(
+            transcript,
+            extraction_provider=self._extractor,
+            translation_provider=self._translator,
+            danger_matcher=self._danger_matcher,
+        )
+        # Required fields accumulate across turns. Never let a later turn erase
+        # information already collected.
+        context.fields.update(extracted.fields)
+        accumulated = ExtractedFields(
+            fields=dict(context.fields),
+            detected_language=extracted.detected_language,
+        )
+        required = self._required_fields_checker(accumulated)
+        required_complete = await required if asyncio.iscoroutine(required) else required
+        decision = self._triage_engine.decide(
+            required_fields_complete=required_complete,
+            danger_sign_fired=danger_fired,
+        )
+        context.state = decision.state
+        signal = _language_signal(extracted)
+        context.profile.update(signal)
+
+        async def response_stream() -> AsyncIterator[str]:
+            try:
+                async for chunk in self._response_generator.generate_stream(
+                    transcript=transcript,
+                    fields=accumulated,
+                    state=decision.state,
+                    language_profile=context.profile,
+                ):
+                    yield chunk
+            except Exception as exc:
+                # Fail-safe: any mid-turn failure escalates. Never silently continue.
+                logger = logging.getLogger(__name__)
+                logger.exception(
+                    "conversation turn failed; escalating",
+                    extra={"turn_number": context.turn_number, "error_type": type(exc).__name__},
+                )
+                context.state = ConversationState.ESCALATE
+                yield "I need to connect you with a healthcare professional now. Please stay on the line."
+
+        match = self._danger_matcher.match(translated)
+        urgency = "RED" if danger_fired else ("AMBER" if decision.state == ConversationState.TRIAGE else None)
+        summary = _triage_summary(accumulated, match.matched_phrases) if decision.state == ConversationState.TRIAGE else None
+        final_response = "".join(response_stream)
+        response_text = final_response.strip()
+        return PipelineTurn(
+            transcript=transcript,
+            translated_text=translated,
+            extracted_fields=accumulated,
+            danger_sign_fired=danger_fired,
+            danger_phrases=match.matched_phrases,
+            state=decision.state,
+            response_text=response_text,
+            urgency_tier=urgency,
+            triage_summary=summary,
+        ), response_stream()
+
 
 
 def _triage_summary(fields: ExtractedFields, danger_phrases: tuple[str, ...]) -> str:

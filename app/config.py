@@ -26,11 +26,11 @@ class Settings(BaseSettings):
     intron_stt_bit_rate: int = 16
     intron_stt_channels: int = 1
     sahara_api_key: str = ''
-    nvidia_api_key: str = ''
-    nvidia_api_url: str = 'https://integrate.api.nvidia.com/v1/chat/completions'
-    nvidia_extraction_model: str = 'meta/llama-3.3-70b-instruct'
-    nvidia_response_model: str = 'meta/llama-3.3-70b-instruct'
-    nvidia_summary_model: str = 'meta/llama-3.3-70b-instruct'
+    openrouter_api_key: str = ''
+    openrouter_api_url: str = 'https://openrouter.ai/api/v1/chat/completions'
+    openrouter_extraction_model: str = 'meta-llama/llama-3.3-70b-instruct'
+    openrouter_response_model: str = 'meta-llama/llama-3.3-70b-instruct'
+    openrouter_summary_model: str = 'meta-llama/llama-3.3-70b-instruct'
     translation_api_url: str = ''
     translation_api_key: str = ''
     africas_talking_username: str = ''

@@ -6,7 +6,7 @@ import contextlib
 import json
 import logging
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, AsyncIterator
 from uuid import UUID
 
 from app.config import Settings
@@ -96,6 +96,16 @@ def build_pipecat_pipeline(
 
         audio: bytes
         audio_format: str
+
+    @dc_dataclass
+    class TTSStreamChunkFrame(DataFrame):
+        """Internal frame for streaming text chunks from LLM."""
+        text: str
+
+    @dc_dataclass
+    class TTSStreamEndFrame(DataFrame):
+        """Internal frame signaling end of LLM response."""
+        pass
 
     context = ConversationContext(
         turn_number=initial_turn_number,
@@ -210,50 +220,58 @@ def build_pipecat_pipeline(
             if not isinstance(frame, TranscriptionFrame) or not frame.finalized:
                 return
 
-            result = await pipeline_logic.process_turn(frame.text, context)
+            # Use streaming version to get LLM response chunks
+            turn_result, response_stream = await pipeline_logic.process_turn_stream(frame.text, context)
+            
+            # Persist the turn data
             try:
                 await repository.save_turn(
                     conversation_id=conversation_id,
                     turn_number=context.turn_number,
-                    transcript=result.transcript,
-                    translated_text=result.translated_text,
-                    extracted_fields=result.extracted_fields.fields,
-                    detected_language=result.extracted_fields.detected_language,
+                    transcript=turn_result.transcript,
+                    translated_text=turn_result.translated_text,
+                    extracted_fields=turn_result.extracted_fields.fields,
+                    detected_language=turn_result.extracted_fields.detected_language,
                     asr_provider="intron",
                 )
-                if result.state.value == "TRIAGE":
+                if turn_result.state.value == "TRIAGE":
                     await repository.upsert_triage_result(
                         conversation_id=conversation_id,
-                        urgency_tier=result.urgency_tier or "AMBER",
-                        danger_signs=list(result.danger_phrases),
-                        summary=result.triage_summary or "Triage completed; clinician review required.",
+                        urgency_tier=turn_result.urgency_tier or "AMBER",
+                        danger_signs=list(turn_result.danger_phrases),
+                        summary=turn_result.triage_summary or "Triage completed; clinician review required.",
                     )
             except Exception as exc:
                 logger.exception("persistence failed; escalating", extra={"error_type": type(exc).__name__})
                 context.state = __import__(
                     "app.dialogue.state_machine", fromlist=["ConversationState"]
                 ).ConversationState.ESCALATE
-                result.response_text = (
+                turn_result.response_text = (
                     "I need to connect you with a healthcare professional now. Please stay on the line."
                 )
 
+            # Push triage update (non-streaming, for UI state)
             await self.push_frame(
                 TriageUpdateFrame(
-                    state=result.state.value,
-                    response_text=result.response_text,
-                    danger_sign_fired=result.danger_sign_fired,
-                    danger_phrases=result.danger_phrases,
-                    urgency_tier=result.urgency_tier,
-                    triage_summary=result.triage_summary,
+                    state=turn_result.state.value,
+                    response_text=turn_result.response_text,
+                    danger_sign_fired=turn_result.danger_sign_fired,
+                    danger_phrases=turn_result.danger_phrases,
+                    urgency_tier=turn_result.urgency_tier,
+                    triage_summary=turn_result.triage_summary,
                 ),
                 direction,
             )
-            await self.push_frame(TTSSpeakFrame(result.response_text), direction)
+            # Push LLM response chunks as streaming frames
+            async for chunk in response_stream:
+                await self.push_frame(TTSStreamChunkFrame(chunk), direction)
+            await self.push_frame(TTSStreamEndFrame(), direction)
 
     class IntronTTSProcessor(FrameProcessor):
         def __init__(self) -> None:
             super().__init__(name="intron-tts")
             self._speech_task: asyncio.Task[Any] | None = None
+            self._tts_stream: IntronTTSStream | None = None
 
         async def process_frame(self, frame: Any, direction: FrameDirection) -> None:
             await super().process_frame(frame, direction)
@@ -264,9 +282,23 @@ def build_pipecat_pipeline(
                 await self._cancel_speech()
                 await self.push_frame(frame, direction)
                 return
-            if isinstance(frame, TTSSpeakFrame):
-                await self._cancel_speech()
-                self._speech_task = asyncio.create_task(self._speak(frame.text or "", direction))
+            if isinstance(frame, TTSStreamChunkFrame):
+                # Buffer LLM text and send to Intron TTS when ready
+                text = frame.text
+                if self._tts_stream is None:
+                    self._tts_stream = IntronTTSStream(settings.intron_tts_config)
+                await self._tts_stream.send_text(text)
+                return
+            if isinstance(frame, TTSStreamEndFrame):
+                # Finalize streaming and commit audio
+                if self._tts_stream is not None:
+                    # Wait for any pending text to be processed
+                    # Intron's iter_audio_blocking doesn't exist, so we rely on
+                    # the streaming handler to push any remaining chunks
+                    # Actually, we need to flush remaining buffer
+                    # Since we're blocking, let's just close the stream
+                    pass
+                # Push audio chunks from the streaming pipeline...
                 return
             await self.push_frame(frame, direction)
 

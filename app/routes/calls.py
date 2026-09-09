@@ -104,9 +104,9 @@ async def summarize_call(
     unconfirmed against real docs — wire that in ahead of this once
     confirmed, rather than assuming a schema for it here.
     """
-    if not settings.nvidia_api_key:
-        raise HTTPException(status_code=503, detail="NVIDIA_API_KEY is not configured")
-    client = NvidiaClient(settings, model=settings.nvidia_summary_model)
+    if not settings.openrouter_api_key:
+        raise HTTPException(status_code=503, detail="OPENROUTER_API_KEY is not configured")
+    client = NvidiaClient(settings, model=settings.openrouter_summary_model)
     summary_service = CallSummaryService(client)
     summary = await summary_service.summarize(body.transcript)
     await repository.update_call_recording(

@@ -41,7 +41,7 @@ async def run_benchmark(
         fields=tuple(x.strip() for x in settings.required_triage_fields.split(",") if x.strip())
     )
     extractor = NvidiaExtractionProvider(
-        NvidiaClient(settings, model=settings.nvidia_extraction_model), policy.fields
+        NvidiaClient(settings, model=settings.openrouter_extraction_model), policy.fields
     )
 
     results: list[BenchmarkResult] = []

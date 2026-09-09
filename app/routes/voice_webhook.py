@@ -194,12 +194,12 @@ async def voice_recording(request: Request) -> Response:
 def _build_pipeline(settings: Settings) -> ConversationPipeline:
     policy = RequiredFieldPolicy(fields=tuple(x.strip() for x in settings.required_triage_fields.split(",") if x.strip()))
     danger = DangerMatcher(tuple(x.strip() for x in settings.danger_sign_phrases.split(",") if x.strip()))
-    if not settings.nvidia_api_key:
+    if not settings.openrouter_api_key:
         extractor: Any = _UnavailableExtractor()
         responder: Any = SafeFallbackResponseGenerator()
     else:
-        extraction_client = NvidiaClient(settings, model=settings.nvidia_extraction_model)
-        response_client = NvidiaClient(settings, model=settings.nvidia_response_model)
+        extraction_client = NvidiaClient(settings, model=settings.openrouter_extraction_model)
+        response_client = NvidiaClient(settings, model=settings.openrouter_response_model)
         extractor = NvidiaExtractionProvider(extraction_client, policy.fields)
         responder = NvidiaResponseGenerator(response_client)
     return ConversationPipeline(
@@ -213,7 +213,7 @@ def _build_pipeline(settings: Settings) -> ConversationPipeline:
 
 class _UnavailableExtractor:
     async def extract(self, transcript: str):
-        raise RuntimeError("NVIDIA_API_KEY is not configured")
+        raise RuntimeError("OPENROUTER_API_KEY is not configured")
 
 
 async def _transcribe_recording(url: str, settings: Settings) -> str:

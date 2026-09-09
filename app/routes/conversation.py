@@ -34,9 +34,9 @@ def _csv(value: str) -> tuple[str, ...]:
 def build_pipeline(settings: Settings) -> ConversationPipeline:
     required_policy = RequiredFieldPolicy(fields=_csv(settings.required_triage_fields))
     danger_matcher = DangerMatcher(_csv(settings.danger_sign_phrases))
-    if settings.nvidia_api_key:
-        extraction_client = NvidiaClient(settings, model=settings.nvidia_extraction_model)
-        response_client = NvidiaClient(settings, model=settings.nvidia_response_model)
+    if settings.openrouter_api_key:
+        extraction_client = NvidiaClient(settings, model=settings.openrouter_extraction_model)
+        response_client = NvidiaClient(settings, model=settings.openrouter_response_model)
         extractor: Any = NvidiaExtractionProvider(extraction_client, required_policy.fields)
         responder: Any = NvidiaResponseGenerator(response_client)
     else:

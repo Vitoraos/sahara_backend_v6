@@ -150,6 +150,35 @@ class IntronTTSStream:
         finally:
             await self.close()
 
+    async def iter_audio_stream(self, text_chunks: AsyncIterator[str]) -> AsyncIterator[bytes]:
+        """Stream text chunks from LLM into a single Intron TTS session.
+
+        Buffers LLM text chunks into Intron-compliant 10-100 char chunks
+        and yields audio as it arrives. Keeps one WebSocket session open
+        for the entire response.
+        """
+        await self.connect()
+        buffer = ""
+        try:
+            async for chunk in text_chunks:
+                buffer += chunk
+                while len(buffer) >= self._config.text_chunk_chars:
+                    # Take a chunk that fits Intron's 10-100 char limit
+                    send_text = buffer[: self._config.text_chunk_chars]
+                    buffer = buffer[len(send_text):]
+                    chunk_id = await self.send_text(send_text)
+                    yield await self.fetch_audio(chunk_id)
+            # Flush remaining buffer
+            if buffer.strip():
+                # Pad short text to minimum 10 chars if possible
+                if len(buffer) < 10:
+                    pass  # Intron handles short text on commit
+                chunk_id = await self.send_text(buffer)
+                yield await self.fetch_audio(chunk_id)
+            await self.commit()
+        finally:
+            await self.close()
+
     async def close(self) -> None:
         if self._ws is not None:
             await self._ws.close()
