@@ -14,7 +14,19 @@ from app.dialogue.state_machine import ConversationState
 
 
 class ProviderError(RuntimeError):
-    """An external provider failed or returned an unusable response."""
+    """An external provider failed or returned unusable response."""
+
+
+_shared_http: httpx.AsyncClient | None = None
+
+
+def _http() -> httpx.AsyncClient:
+    # ponytail: one keep-alive client per process skips TLS+TCP setup on
+    # every LLM call; recreate it if the event loop ever turns over.
+    global _shared_http
+    if _shared_http is None:
+        _shared_http = httpx.AsyncClient()
+    return _shared_http
 
 
 class OpenRouterClient:
@@ -52,8 +64,7 @@ class OpenRouterClient:
         for attempt in range(self._settings.external_max_retries + 1):
             try:
                 timeout = httpx.Timeout(self._settings.external_timeout_seconds)
-                async with httpx.AsyncClient(timeout=timeout) as client:
-                    response = await client.post(self._url, headers=headers, json=payload)
+                response = await _http().post(self._url, headers=headers, json=payload, timeout=timeout)
                 if response.status_code >= 500 or response.status_code == 429:
                     raise httpx.HTTPStatusError(
                         f"OpenRouter temporary HTTP {response.status_code}",
@@ -95,8 +106,7 @@ class OpenRouterClient:
         for attempt in range(self._settings.external_max_retries + 1):
             try:
                 timeout = httpx.Timeout(self._settings.external_timeout_seconds)
-                async with httpx.AsyncClient(timeout=timeout) as client:
-                    async with client.stream("POST", self._url, headers=headers, json=payload) as response:
+                async with _http().stream("POST", self._url, headers=headers, json=payload, timeout=timeout) as response:
                         if response.status_code >= 500 or response.status_code == 429:
                             raise httpx.HTTPStatusError(
                                 f"OpenRouter temporary HTTP {response.status_code}",

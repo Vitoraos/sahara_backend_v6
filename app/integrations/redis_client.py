@@ -14,7 +14,15 @@ class RedisClient:
 
     @property
     def client(self) -> aioredis.Redis:
-        return aioredis.from_url(self.url, decode_responses=True)
+        # ponytail: single shared connection per process; pool when
+        # concurrent voice sessions saturate it.
+        global _shared
+        if _shared is None:
+            _shared = aioredis.from_url(self.url, decode_responses=True)
+        return _shared
+
+
+_shared: aioredis.Redis | None = None
 
 
 async def get_redis(settings: Settings = Depends(get_settings)) -> AsyncIterator[RedisClient]:

@@ -15,6 +15,7 @@ except ImportError:
     DataFrame = object  # type: ignore
 
 from app.config import Settings
+from app.persistence_outbox import ensure_flusher, persist_turn_result
 from app.pipeline.pipecat_pipeline import ConversationContext, ConversationPipeline
 from app.integrations.conversation_repository import ConversationRepository
 from app.pipeline.intron_stream import IntronSTTStream
@@ -119,6 +120,7 @@ def build_pipecat_pipeline(
         turn_number=initial_turn_number,
         fields=dict(initial_fields or {}),
     )
+    ensure_flusher(repository, settings)
 
     class IntronSTTProcessor(FrameProcessor):
         def __init__(self) -> None:
@@ -230,25 +232,36 @@ def build_pipecat_pipeline(
 
             # Use streaming version to get LLM response chunks
             turn_result, chunks = await pipeline_logic.process_turn_stream(frame.text, context)
-            
-            # Persist the turn data
+
+            # Buffer persistence off the speech path: one Redis round-trip
+            # replaces two Supabase round-trips before first audio. A push
+            # failure only logs — speech already flows; Supabase stays the
+            # source of truth via the background flusher.
+            triage_payload = (
+                {
+                    "conversation_id": str(conversation_id),
+                    "urgency_tier": turn_result.urgency_tier or "AMBER",
+                    "danger_signs": list(turn_result.danger_phrases),
+                    "summary": turn_result.triage_summary or "Triage completed; clinician review required.",
+                }
+                if turn_result.state.value == "TRIAGE"
+                else None
+            )
             try:
-                await repository.save_turn(
-                    conversation_id=conversation_id,
-                    turn_number=context.turn_number,
-                    transcript=turn_result.transcript,
-                    translated_text=turn_result.translated_text,
-                    extracted_fields=turn_result.extracted_fields.fields,
-                    detected_language=turn_result.extracted_fields.detected_language,
-                    asr_provider="intron",
+                await persist_turn_result(
+                    repository,
+                    settings,
+                    turn={
+                        "conversation_id": str(conversation_id),
+                        "turn_number": context.turn_number,
+                        "transcript": turn_result.transcript,
+                        "translated_text": turn_result.translated_text,
+                        "extracted_fields": turn_result.extracted_fields.fields,
+                        "detected_language": turn_result.extracted_fields.detected_language,
+                        "asr_provider": "intron",
+                    },
+                    triage=triage_payload,
                 )
-                if turn_result.state.value == "TRIAGE":
-                    await repository.upsert_triage_result(
-                        conversation_id=conversation_id,
-                        urgency_tier=turn_result.urgency_tier or "AMBER",
-                        danger_signs=list(turn_result.danger_phrases),
-                        summary=turn_result.triage_summary or "Triage completed; clinician review required.",
-                    )
             except Exception as exc:
                 logger.exception("persistence failed; escalating", extra={"error_type": type(exc).__name__})
                 context.state = __import__(

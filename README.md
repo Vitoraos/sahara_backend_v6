@@ -110,6 +110,12 @@ Live Swagger UI at `/docs` (ReDoc at `/redoc`, raw spec at `/openapi.json`). Reg
 python -c "import json, app.main; json.dump(app.main.app.openapi(), open('openapi.json','w'), indent=2)"
 ```
 
+## Voice latency notes
+
+- Turn persistence is write-behind: the frame pipeline pushes turns/triage to Redis (`sahara:turns`, `sahara:triage`) in one round-trip and speaks immediately; a background task flushes to Supabase. Without `REDIS_URL` it falls back to inline writes automatically.
+- Auth tokens are cached 60s (`sahara:auth:*`); OpenRouter uses one keep-alive HTTP client per process.
+- Measure before adding more caching: if Upstash RTT from your host is worse than Supabase RTT, caching reads makes things slower. Compare `PING` RTTs first.
+
 ## Important implementation boundary
 
 The supplied project specification does not define the authoritative clinical field schema or danger-sign phrase list. Those remain configuration-driven instead of being fabricated in code. Likewise, the supplied TTS screenshot does not expose every query parameter/response field, so the TTS adapter keeps its endpoint configurable and parses the documented response message types without pretending undocumented fields are guaranteed.
