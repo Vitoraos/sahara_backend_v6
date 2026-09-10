@@ -11,6 +11,12 @@ from app.calls.click_to_call import ClickToCallService
 from app.config import Settings, get_settings
 from app.dialogue.llm_provider import OpenRouterClient
 from app.integrations.conversation_repository import ConversationRepository
+from app.models.api_models import (
+    CallSummaryResponse,
+    ClickToCallResponse,
+    ErrorResponse,
+    PatientJoinResponse,
+)
 from app.routes.deps import get_repository, require_clinician_id, require_patient_id
 
 router = APIRouter(tags=["calls"])
@@ -26,7 +32,12 @@ class SummarizeCallRequest(BaseModel):
     transcript: str
 
 
-@router.post("/calls/click-to-call")
+@router.post(
+    "/calls/click-to-call",
+    response_model=ClickToCallResponse,
+    responses={401: {"model": ErrorResponse}, 404: {"model": ErrorResponse}, 503: {"model": ErrorResponse}},
+    summary="Doctor bridges a call for an appointment",
+)
 async def click_to_call(
     body: ClickToCallRequest,
     doctor_id=Depends(require_clinician_id),
@@ -62,7 +73,12 @@ async def click_to_call(
     return {"session_id": session_id, "call_recording": call_recording}
 
 
-@router.post("/calls/patient-join/{appointment_id}")
+@router.post(
+    "/calls/patient-join/{appointment_id}",
+    response_model=PatientJoinResponse,
+    responses={400: {"model": ErrorResponse}, 401: {"model": ErrorResponse}, 404: {"model": ErrorResponse}, 503: {"model": ErrorResponse}},
+    summary="Patient joins their appointment call",
+)
 async def patient_join_call(
     appointment_id: UUID,
     patient_id=Depends(require_patient_id),
@@ -87,7 +103,12 @@ async def patient_join_call(
     return {"session_id": session_id}
 
 
-@router.post("/calls/{call_recording_id}/summarize")
+@router.post(
+    "/calls/{call_recording_id}/summarize",
+    response_model=CallSummaryResponse,
+    responses={401: {"model": ErrorResponse}, 503: {"model": ErrorResponse}},
+    summary="Summarize a call transcript for the record",
+)
 async def summarize_call(
     call_recording_id: UUID,
     body: SummarizeCallRequest,

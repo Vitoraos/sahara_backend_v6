@@ -102,6 +102,14 @@ pytest -q
 
 The current suite covers the safety gate, language profile, required-field policy, TTS chunking/audio decoding, and pipeline behavior.
 
+## API docs
+
+Live Swagger UI at `/docs` (ReDoc at `/redoc`, raw spec at `/openapi.json`). Regenerate the checked-in `openapi.json` after route changes:
+
+```bash
+python -c "import json, app.main; json.dump(app.main.app.openapi(), open('openapi.json','w'), indent=2)"
+```
+
 ## Important implementation boundary
 
 The supplied project specification does not define the authoritative clinical field schema or danger-sign phrase list. Those remain configuration-driven instead of being fabricated in code. Likewise, the supplied TTS screenshot does not expose every query parameter/response field, so the TTS adapter keeps its endpoint configurable and parses the documented response message types without pretending undocumented fields are guaranteed.

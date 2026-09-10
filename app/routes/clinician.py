@@ -6,6 +6,12 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from app.integrations.conversation_repository import ConversationRepository
+from app.models.api_models import (
+    AvailabilityResponse,
+    ErrorResponse,
+    QueueResponse,
+    TriageFormResponse,
+)
 from app.routes.deps import get_repository, require_clinician_id
 
 router = APIRouter(tags=["clinician"])
@@ -21,7 +27,12 @@ class AvailabilityUpdate(BaseModel):
     windows: list[AvailabilityWindow]
 
 
-@router.get("/clinician/availability")
+@router.get(
+    "/clinician/availability",
+    response_model=AvailabilityResponse,
+    responses={401: {"model": ErrorResponse}},
+    summary="Get my weekly availability",
+)
 async def get_my_availability(
     doctor_id=Depends(require_clinician_id),
     repository: ConversationRepository = Depends(get_repository),
@@ -30,7 +41,12 @@ async def get_my_availability(
     return {"windows": await repository.availability_for_doctor(doctor_id)}
 
 
-@router.put("/clinician/availability")
+@router.put(
+    "/clinician/availability",
+    response_model=AvailabilityResponse,
+    responses={401: {"model": ErrorResponse}, 422: {"model": ErrorResponse}},
+    summary="Replace my weekly availability",
+)
 async def set_my_availability(
     body: AvailabilityUpdate,
     doctor_id=Depends(require_clinician_id),
@@ -54,7 +70,12 @@ async def set_my_availability(
     return {"windows": await repository.replace_availability(doctor_id=doctor_id, windows=windows)}
 
 
-@router.get("/clinician/queue")
+@router.get(
+    "/clinician/queue",
+    response_model=QueueResponse,
+    responses={401: {"model": ErrorResponse}},
+    summary="My appointment queue with triage reports",
+)
 async def get_appointment_queue(
     doctor_id=Depends(require_clinician_id),
     repository: ConversationRepository = Depends(get_repository),
@@ -88,7 +109,12 @@ async def get_appointment_queue(
     return {"appointments": enriched}
 
 
-@router.get("/clinician/patients/{patient_id}/triage-form")
+@router.get(
+    "/clinician/patients/{patient_id}/triage-form",
+    response_model=TriageFormResponse,
+    responses={401: {"model": ErrorResponse}, 404: {"model": ErrorResponse}},
+    summary="Triage report for one assigned patient",
+)
 async def get_patient_triage_form(
     patient_id: UUID,
     doctor_id=Depends(require_clinician_id),

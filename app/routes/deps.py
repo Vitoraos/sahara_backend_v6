@@ -2,11 +2,14 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import Depends, Header, HTTPException
+from fastapi import Depends, HTTPException
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.config import Settings, get_settings
 from app.integrations.conversation_repository import ConversationRepository
 from app.integrations.supabase_client import SupabaseClient, get_supabase
+
+bearer_scheme = HTTPBearer(auto_error=False, description="Supabase session JWT")
 
 
 async def get_repository(
@@ -16,17 +19,14 @@ async def get_repository(
     return ConversationRepository(supabase, timeout_seconds=settings.persistence_timeout_seconds)
 
 
-def _bearer_token(authorization: str | None) -> str:
-    if not authorization or not authorization.lower().startswith("bearer "):
+def _bearer_token(credentials: HTTPAuthorizationCredentials | None) -> str:
+    if credentials is None or not credentials.credentials:
         raise HTTPException(status_code=401, detail="Missing bearer token")
-    token = authorization.split(" ", 1)[1].strip()
-    if not token:
-        raise HTTPException(status_code=401, detail="Missing bearer token")
-    return token
+    return credentials.credentials.strip()
 
 
 async def require_patient_id(
-    authorization: str | None = Header(default=None),
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
     repository: ConversationRepository = Depends(get_repository),
 ) -> UUID:
     """Resolves the caller's patient identity from their Supabase session
@@ -34,7 +34,7 @@ async def require_patient_id(
     backend uses the Supabase service-role key, which bypasses RLS, so
     RLS alone does not protect these endpoints — this dependency does.
     """
-    token = _bearer_token(authorization)
+    token = _bearer_token(credentials)
     row = await repository.patient_for_access_token(token)
     if not row:
         raise HTTPException(status_code=401, detail="Not a recognized patient session")
@@ -42,10 +42,10 @@ async def require_patient_id(
 
 
 async def require_clinician_id(
-    authorization: str | None = Header(default=None),
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
     repository: ConversationRepository = Depends(get_repository),
 ) -> UUID:
-    token = _bearer_token(authorization)
+    token = _bearer_token(credentials)
     row = await repository.clinician_for_access_token(token)
     if not row:
         raise HTTPException(status_code=401, detail="Not a recognized clinician session")

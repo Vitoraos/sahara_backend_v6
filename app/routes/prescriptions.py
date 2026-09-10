@@ -6,6 +6,11 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
 from app.integrations.conversation_repository import ConversationRepository
+from app.models.api_models import (
+    ErrorResponse,
+    PrescriptionCreateResponse,
+    PrescriptionListResponse,
+)
 from app.routes.deps import get_repository, require_clinician_id, require_patient_id
 
 router = APIRouter(tags=["prescriptions"])
@@ -18,7 +23,12 @@ class PrescriptionCreateRequest(BaseModel):
     instructions: str = Field(min_length=1)
 
 
-@router.get("/prescriptions")
+@router.get(
+    "/prescriptions",
+    response_model=PrescriptionListResponse,
+    responses={401: {"model": ErrorResponse}},
+    summary="My prescription inbox",
+)
 async def list_my_prescriptions(
     patient_id=Depends(require_patient_id),
     repository: ConversationRepository = Depends(get_repository),
@@ -28,7 +38,13 @@ async def list_my_prescriptions(
     return {"prescriptions": prescriptions}
 
 
-@router.post("/prescriptions", status_code=201)
+@router.post(
+    "/prescriptions",
+    response_model=PrescriptionCreateResponse,
+    status_code=201,
+    responses={401: {"model": ErrorResponse}},
+    summary="Send a prescription to a patient",
+)
 async def create_prescription(
     body: PrescriptionCreateRequest,
     doctor_id=Depends(require_clinician_id),

@@ -1,0 +1,1930 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Sahara Triage Voice Agent API",
+    "summary": "Conversational health-triage voice agent: Supabase-backed triage, scheduling, and clinician workflows.",
+    "description": "Patient signup and voice triage (browser WebSocket or Africa's Talking phone channel), automatic doctor-slot routing, clinician queues with embedded triage reports, prescriptions, and consent-gated call workflows.\n\nAuth: Supabase session JWT as `Authorization: Bearer <token>` (use the Authorize button). The browser voice channel is a WebSocket and is documented in the README message catalog; phone callbacks accept `application/x-www-form-urlencoded` and return TwiML XML.",
+    "version": "1.0.0"
+  },
+  "servers": [
+    {
+      "url": "https://api.sahara.example.com",
+      "description": "Production"
+    },
+    {
+      "url": "http://localhost:8000",
+      "description": "Local development"
+    }
+  ],
+  "paths": {
+    "/api/health": {
+      "get": {
+        "tags": [
+          "health"
+        ],
+        "summary": "Health",
+        "operationId": "health_api_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "type": "object",
+                  "title": "Response Health Api Health Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/patient/signup": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Sign up as a patient",
+        "operationId": "patient_signup_api_auth_patient_signup_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PatientSignup"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PatientSignupResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/doctor/signup": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Sign up as a doctor (dummy license verify)",
+        "operationId": "doctor_signup_api_auth_doctor_signup_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DoctorSignup"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DoctorSignupResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Content",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/voice/webhook": {
+      "post": {
+        "tags": [
+          "voice"
+        ],
+        "summary": "Africa's Talking inbound-call callback",
+        "description": "Accepts `application/x-www-form-urlencoded` (callerNumber, sessionId, isActive) and returns TwiML XML (`<Say>`, `<GetDigits>`, `<Record>`, `<Dial>`).",
+        "operationId": "voice_webhook_api_voice_webhook_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "403": {
+            "description": "Invalid webhook secret"
+          }
+        }
+      }
+    },
+    "/api/voice/consent": {
+      "post": {
+        "tags": [
+          "voice"
+        ],
+        "summary": "Recording-consent IVR callback",
+        "description": "Accepts form-data (`conversation_id`, `dtmfDigits`) and returns TwiML XML. Digit 1 starts recorded triage turns; anything else escalates without recording.",
+        "operationId": "voice_consent_api_voice_consent_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "403": {
+            "description": "Invalid webhook secret"
+          }
+        }
+      }
+    },
+    "/api/voice/recording": {
+      "post": {
+        "tags": [
+          "voice"
+        ],
+        "summary": "One recorded triage turn",
+        "description": "Accepts form-data (`conversation_id`, `recordingUrl`, `recording_consent`), runs STT \u2192 safety/triage \u2192 auto-routing, and returns the next TwiML XML prompt including the appointment time once triage is reached.",
+        "operationId": "voice_recording_api_voice_recording_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "403": {
+            "description": "Invalid webhook secret"
+          }
+        }
+      }
+    },
+    "/api/appointments": {
+      "get": {
+        "tags": [
+          "appointments"
+        ],
+        "summary": "List my appointments",
+        "description": "Patient-facing: their own appointment dates, most recent first.",
+        "operationId": "list_my_appointments_api_appointments_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppointmentListResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/appointments/route": {
+      "post": {
+        "tags": [
+          "appointments"
+        ],
+        "summary": "Auto-book earliest free doctor slot",
+        "description": "Book the earliest free doctor slot for a triaged conversation.\n\nCalled by the web-voice client after TRIAGE_UPDATE; the phone channel\ncalls the same function internally in voice_webhook.py.",
+        "operationId": "route_my_appointment_api_appointments_route_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RouteAppointmentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RouteAppointmentResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/history": {
+      "get": {
+        "tags": [
+          "history"
+        ],
+        "summary": "My conversation history with triage outcomes",
+        "description": "Patient-facing: past triage conversations with the agent, each with\nits triage outcome (if one was reached).",
+        "operationId": "list_my_conversation_history_api_history_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HistoryResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/prescriptions": {
+      "get": {
+        "tags": [
+          "prescriptions"
+        ],
+        "summary": "My prescription inbox",
+        "description": "Patient-facing prescription inbox.",
+        "operationId": "list_my_prescriptions_api_prescriptions_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PrescriptionListResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "prescriptions"
+        ],
+        "summary": "Send a prescription to a patient",
+        "description": "Clinician-facing: send a prescription to a patient.",
+        "operationId": "create_prescription_api_prescriptions_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PrescriptionCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PrescriptionCreateResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/clinician/availability": {
+      "get": {
+        "tags": [
+          "clinician"
+        ],
+        "summary": "Get my weekly availability",
+        "description": "Doctor's own weekly windows (UTC, HH:MM).",
+        "operationId": "get_my_availability_api_clinician_availability_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AvailabilityResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "clinician"
+        ],
+        "summary": "Replace my weekly availability",
+        "description": "Replace all weekly windows. A weekday with no window means unavailable.",
+        "operationId": "set_my_availability_api_clinician_availability_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AvailabilityUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AvailabilityResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Content",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/clinician/queue": {
+      "get": {
+        "tags": [
+          "clinician"
+        ],
+        "summary": "My appointment queue with triage reports",
+        "description": "Clinician-facing: pending/upcoming appointments, most urgent first\n(RED > AMBER > GREEN, matching the pipeline's urgency_tier), each with\nthe patient details and the voice-agent triage report embedded.",
+        "operationId": "get_appointment_queue_api_clinician_queue_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QueueResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/clinician/patients/{patient_id}/triage-form": {
+      "get": {
+        "tags": [
+          "clinician"
+        ],
+        "summary": "Triage report for one assigned patient",
+        "description": "Clinician-facing: the structured fields, danger signs, and summary\ncaptured for one patient's triage conversation. Access is scoped to\npatients this clinician has an appointment with \u2014 matching the RLS\npolicy shape exactly, not just the active queue.",
+        "operationId": "get_patient_triage_form_api_clinician_patients__patient_id__triage_form_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "patient_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Patient Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TriageFormResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/calls/click-to-call": {
+      "post": {
+        "tags": [
+          "calls"
+        ],
+        "summary": "Doctor bridges a call for an appointment",
+        "description": "Clinician-facing call button: bridges the clinic's calling number\nand the patient's number for a specific appointment.\n\nRecording only starts if consent_confirmed is explicitly true \u2014 per\nRULES.md rule 4, never record silently.",
+        "operationId": "click_to_call_api_calls_click_to_call_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClickToCallRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClickToCallResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/calls/patient-join/{appointment_id}": {
+      "post": {
+        "tags": [
+          "calls"
+        ],
+        "summary": "Patient joins their appointment call",
+        "description": "Patient-facing call button: dials the patient's own on-file number\nto connect them into their appointment call.",
+        "operationId": "patient_join_call_api_calls_patient_join__appointment_id__post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "appointment_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Appointment Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PatientJoinResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/calls/{call_recording_id}/summarize": {
+      "post": {
+        "tags": [
+          "calls"
+        ],
+        "summary": "Summarize a call transcript for the record",
+        "description": "Stores an LLM-extracted key-points summary of a call transcript for\nthe doctor's record.\n\nNOTE: this takes the transcript as input rather than transcribing a\nrecording itself. Sahara's file-upload STT endpoint (needed to\ntranscribe a completed call recording after the fact) is still\nunconfirmed against real docs \u2014 wire that in ahead of this once\nconfirmed, rather than assuming a schema for it here.",
+        "operationId": "summarize_call_api_calls__call_recording_id__summarize_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "call_recording_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Call Recording Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SummarizeCallRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CallSummaryResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/": {
+      "get": {
+        "summary": "Root",
+        "operationId": "root__get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "type": "object",
+                  "title": "Response Root  Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AppointmentListResponse": {
+        "properties": {
+          "appointments": {
+            "items": {
+              "$ref": "#/components/schemas/AppointmentOut"
+            },
+            "type": "array",
+            "title": "Appointments"
+          }
+        },
+        "type": "object",
+        "required": [
+          "appointments"
+        ],
+        "title": "AppointmentListResponse"
+      },
+      "AppointmentOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "patient_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Patient Id"
+          },
+          "conversation_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Conversation Id"
+          },
+          "tier": {
+            "type": "string",
+            "title": "Tier",
+            "examples": [
+              "AMBER"
+            ]
+          },
+          "scheduled_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Scheduled At"
+          },
+          "doctor_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Doctor Id"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status",
+            "examples": [
+              "scheduled"
+            ]
+          },
+          "notified_via": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notified Via"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "patient_id",
+          "tier",
+          "scheduled_at",
+          "status"
+        ],
+        "title": "AppointmentOut"
+      },
+      "AvailabilityResponse": {
+        "properties": {
+          "windows": {
+            "items": {
+              "$ref": "#/components/schemas/AvailabilityWindowOut"
+            },
+            "type": "array",
+            "title": "Windows"
+          }
+        },
+        "type": "object",
+        "required": [
+          "windows"
+        ],
+        "title": "AvailabilityResponse"
+      },
+      "AvailabilityUpdate": {
+        "properties": {
+          "windows": {
+            "items": {
+              "$ref": "#/components/schemas/AvailabilityWindow"
+            },
+            "type": "array",
+            "title": "Windows"
+          }
+        },
+        "type": "object",
+        "required": [
+          "windows"
+        ],
+        "title": "AvailabilityUpdate"
+      },
+      "AvailabilityWindow": {
+        "properties": {
+          "weekday": {
+            "type": "integer",
+            "title": "Weekday"
+          },
+          "start": {
+            "type": "string",
+            "title": "Start"
+          },
+          "end": {
+            "type": "string",
+            "title": "End"
+          }
+        },
+        "type": "object",
+        "required": [
+          "weekday",
+          "start",
+          "end"
+        ],
+        "title": "AvailabilityWindow"
+      },
+      "AvailabilityWindowOut": {
+        "properties": {
+          "id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id"
+          },
+          "doctor_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Doctor Id"
+          },
+          "weekday": {
+            "type": "integer",
+            "title": "Weekday",
+            "description": "0=Monday..6=Sunday (UTC)",
+            "examples": [
+              1
+            ]
+          },
+          "start_time": {
+            "type": "string",
+            "title": "Start Time",
+            "examples": [
+              "09:00:00"
+            ]
+          },
+          "end_time": {
+            "type": "string",
+            "title": "End Time",
+            "examples": [
+              "12:00:00"
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "weekday",
+          "start_time",
+          "end_time"
+        ],
+        "title": "AvailabilityWindowOut"
+      },
+      "CallSummaryResponse": {
+        "properties": {
+          "key_points_summary": {
+            "type": "string",
+            "title": "Key Points Summary"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key_points_summary"
+        ],
+        "title": "CallSummaryResponse"
+      },
+      "ClickToCallRequest": {
+        "properties": {
+          "appointment_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Appointment Id"
+          },
+          "patient_phone_number": {
+            "type": "string",
+            "title": "Patient Phone Number"
+          },
+          "consent_confirmed": {
+            "type": "boolean",
+            "title": "Consent Confirmed"
+          }
+        },
+        "type": "object",
+        "required": [
+          "appointment_id",
+          "patient_phone_number",
+          "consent_confirmed"
+        ],
+        "title": "ClickToCallRequest"
+      },
+      "ClickToCallResponse": {
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "title": "Session Id"
+          },
+          "call_recording": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Call Recording"
+          }
+        },
+        "type": "object",
+        "required": [
+          "session_id"
+        ],
+        "title": "ClickToCallResponse"
+      },
+      "ConversationHistoryItem": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "channel": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Channel"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "ended_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ended At"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          },
+          "triage_result": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Triage Result"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id"
+        ],
+        "title": "ConversationHistoryItem"
+      },
+      "DoctorSignup": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "phone_number": {
+            "type": "string",
+            "title": "Phone Number"
+          },
+          "email": {
+            "type": "string",
+            "title": "Email"
+          },
+          "password": {
+            "type": "string",
+            "title": "Password"
+          },
+          "license_number": {
+            "type": "string",
+            "title": "License Number"
+          },
+          "specialty": {
+            "type": "string",
+            "title": "Specialty"
+          },
+          "confirm_license": {
+            "type": "boolean",
+            "title": "Confirm License"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "phone_number",
+          "email",
+          "password",
+          "license_number",
+          "specialty",
+          "confirm_license"
+        ],
+        "title": "DoctorSignup"
+      },
+      "DoctorSignupResponse": {
+        "properties": {
+          "doctor_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Doctor Id"
+          },
+          "access_token": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Access Token",
+            "description": "Supabase session JWT. Null until email confirmed."
+          }
+        },
+        "type": "object",
+        "required": [
+          "doctor_id"
+        ],
+        "title": "DoctorSignupResponse"
+      },
+      "ErrorResponse": {
+        "properties": {
+          "detail": {
+            "type": "string",
+            "title": "Detail",
+            "examples": [
+              "Not a recognized patient session"
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "detail"
+        ],
+        "title": "ErrorResponse"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "HistoryResponse": {
+        "properties": {
+          "conversations": {
+            "items": {
+              "$ref": "#/components/schemas/ConversationHistoryItem"
+            },
+            "type": "array",
+            "title": "Conversations"
+          }
+        },
+        "type": "object",
+        "required": [
+          "conversations"
+        ],
+        "title": "HistoryResponse"
+      },
+      "PatientJoinResponse": {
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "title": "Session Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "session_id"
+        ],
+        "title": "PatientJoinResponse"
+      },
+      "PatientSignup": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "phone_number": {
+            "type": "string",
+            "title": "Phone Number"
+          },
+          "email": {
+            "type": "string",
+            "title": "Email"
+          },
+          "password": {
+            "type": "string",
+            "title": "Password"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "phone_number",
+          "email",
+          "password"
+        ],
+        "title": "PatientSignup"
+      },
+      "PatientSignupResponse": {
+        "properties": {
+          "patient_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Patient Id"
+          },
+          "access_token": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Access Token",
+            "description": "Supabase session JWT. Null when 'Confirm email' is enabled until the user confirms."
+          }
+        },
+        "type": "object",
+        "required": [
+          "patient_id"
+        ],
+        "title": "PatientSignupResponse"
+      },
+      "Prescription": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "patient_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Patient Id"
+          },
+          "doctor_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Doctor Id"
+          },
+          "medication": {
+            "type": "string",
+            "title": "Medication"
+          },
+          "dosage": {
+            "type": "string",
+            "title": "Dosage"
+          },
+          "instructions": {
+            "type": "string",
+            "title": "Instructions"
+          },
+          "issued_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Issued At"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "patient_id",
+          "doctor_id",
+          "medication",
+          "dosage",
+          "instructions",
+          "issued_at",
+          "status"
+        ],
+        "title": "Prescription"
+      },
+      "PrescriptionCreateRequest": {
+        "properties": {
+          "patient_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Patient Id"
+          },
+          "medication": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Medication"
+          },
+          "dosage": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Dosage"
+          },
+          "instructions": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Instructions"
+          }
+        },
+        "type": "object",
+        "required": [
+          "patient_id",
+          "medication",
+          "dosage",
+          "instructions"
+        ],
+        "title": "PrescriptionCreateRequest"
+      },
+      "PrescriptionCreateResponse": {
+        "properties": {
+          "prescription": {
+            "$ref": "#/components/schemas/Prescription"
+          }
+        },
+        "type": "object",
+        "required": [
+          "prescription"
+        ],
+        "title": "PrescriptionCreateResponse"
+      },
+      "PrescriptionListResponse": {
+        "properties": {
+          "prescriptions": {
+            "items": {
+              "$ref": "#/components/schemas/Prescription"
+            },
+            "type": "array",
+            "title": "Prescriptions"
+          }
+        },
+        "type": "object",
+        "required": [
+          "prescriptions"
+        ],
+        "title": "PrescriptionListResponse"
+      },
+      "QueueItemOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "patient_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Patient Id"
+          },
+          "conversation_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Conversation Id"
+          },
+          "tier": {
+            "type": "string",
+            "title": "Tier",
+            "examples": [
+              "AMBER"
+            ]
+          },
+          "scheduled_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Scheduled At"
+          },
+          "doctor_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Doctor Id"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status",
+            "examples": [
+              "scheduled"
+            ]
+          },
+          "notified_via": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notified Via"
+          },
+          "patient": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/QueuePatient"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "triage_report": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Triage Report",
+            "description": "Voice-agent triage report: conversation_id, fields, and triage_result."
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "patient_id",
+          "tier",
+          "scheduled_at",
+          "status"
+        ],
+        "title": "QueueItemOut"
+      },
+      "QueuePatient": {
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "phone_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phone Number"
+          },
+          "email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
+          }
+        },
+        "type": "object",
+        "title": "QueuePatient"
+      },
+      "QueueResponse": {
+        "properties": {
+          "appointments": {
+            "items": {
+              "$ref": "#/components/schemas/QueueItemOut"
+            },
+            "type": "array",
+            "title": "Appointments"
+          }
+        },
+        "type": "object",
+        "required": [
+          "appointments"
+        ],
+        "title": "QueueResponse"
+      },
+      "RouteAppointmentRequest": {
+        "properties": {
+          "conversation_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Conversation Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "conversation_id"
+        ],
+        "title": "RouteAppointmentRequest"
+      },
+      "RouteAppointmentResponse": {
+        "properties": {
+          "appointment": {
+            "$ref": "#/components/schemas/AppointmentOut"
+          }
+        },
+        "type": "object",
+        "required": [
+          "appointment"
+        ],
+        "title": "RouteAppointmentResponse"
+      },
+      "SummarizeCallRequest": {
+        "properties": {
+          "transcript": {
+            "type": "string",
+            "title": "Transcript"
+          }
+        },
+        "type": "object",
+        "required": [
+          "transcript"
+        ],
+        "title": "SummarizeCallRequest"
+      },
+      "TriageFormResponse": {
+        "properties": {
+          "conversation_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Conversation Id"
+          },
+          "conversation_started_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Conversation Started At"
+          },
+          "fields": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Fields",
+            "examples": [
+              {
+                "chief_complaint": "fever",
+                "symptom_onset": "today"
+              }
+            ]
+          },
+          "triage_result": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Triage Result"
+          }
+        },
+        "type": "object",
+        "required": [
+          "conversation_id",
+          "fields"
+        ],
+        "title": "TriageFormResponse"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      }
+    },
+    "securitySchemes": {
+      "HTTPBearer": {
+        "type": "http",
+        "description": "Supabase session JWT",
+        "scheme": "bearer"
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "auth",
+      "description": "Patient and doctor signup."
+    },
+    {
+      "name": "conversation",
+      "description": "Browser voice WebSocket channel."
+    },
+    {
+      "name": "voice",
+      "description": "Africa's Talking phone callbacks (form-data in, TwiML XML out)."
+    },
+    {
+      "name": "appointments",
+      "description": "Patient appointments and triage auto-routing."
+    },
+    {
+      "name": "clinician",
+      "description": "Doctor availability, queue, and triage reports."
+    },
+    {
+      "name": "prescriptions",
+      "description": "Clinician-issued prescriptions and patient inbox."
+    },
+    {
+      "name": "history",
+      "description": "Patient conversation history with triage outcomes."
+    },
+    {
+      "name": "calls",
+      "description": "Consent-gated doctor-patient calls and summaries."
+    },
+    {
+      "name": "health",
+      "description": "Service health."
+    }
+  ]
+}

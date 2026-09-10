@@ -84,6 +84,15 @@ def build_tts(settings: Settings) -> IntronTTSStream:
 
 @router.websocket("/conversations/ws")
 async def conversation_websocket(websocket: WebSocket) -> None:
+    """Browser voice channel (WebSocket, not part of the OpenAPI schema).
+
+    Client → server: INPUT_AUDIO_CHUNK {audio_base_64}, COMMIT, INTERRUPT,
+    PING. Server → client: SESSION_CREATED, PARTIAL_TRANSCRIPT,
+    COMMITTED_TRANSCRIPT, TRIAGE_UPDATE {state, danger_sign_fired,
+    danger_phrases, urgency_tier, triage_summary}, TTS_AUDIO_CHUNK,
+    TTS_AUDIO_END, ERROR. Auth via `Authorization: Bearer <token>` header
+    (or `?patient_id=` when ALLOW_DEV_UNAUTHENTICATED in development).
+    """
     await websocket.accept()
     settings = get_settings()
     repository: ConversationRepository | None = None

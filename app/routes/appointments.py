@@ -6,6 +6,11 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from app.integrations.conversation_repository import ConversationRepository
+from app.models.api_models import (
+    AppointmentListResponse,
+    ErrorResponse,
+    RouteAppointmentResponse,
+)
 from app.routes.deps import get_repository, require_patient_id
 from app.scheduling import route_appointment
 
@@ -16,7 +21,12 @@ class RouteAppointmentRequest(BaseModel):
     conversation_id: UUID
 
 
-@router.get("/appointments")
+@router.get(
+    "/appointments",
+    response_model=AppointmentListResponse,
+    responses={401: {"model": ErrorResponse}},
+    summary="List my appointments",
+)
 async def list_my_appointments(
     patient_id=Depends(require_patient_id),
     repository: ConversationRepository = Depends(get_repository),
@@ -26,7 +36,13 @@ async def list_my_appointments(
     return {"appointments": appointments}
 
 
-@router.post("/appointments/route")
+@router.post(
+    "/appointments/route",
+    response_model=RouteAppointmentResponse,
+    status_code=201,
+    responses={401: {"model": ErrorResponse}, 404: {"model": ErrorResponse}, 503: {"model": ErrorResponse}},
+    summary="Auto-book earliest free doctor slot",
+)
 async def route_my_appointment(
     body: RouteAppointmentRequest,
     patient_id=Depends(require_patient_id),

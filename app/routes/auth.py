@@ -10,6 +10,7 @@ from supabase import acreate_client
 
 from app.config import Settings, get_settings
 from app.integrations.conversation_repository import ConversationRepository
+from app.models.api_models import DoctorSignupResponse, ErrorResponse, PatientSignupResponse
 from app.routes.deps import get_repository
 
 logger = logging.getLogger(__name__)
@@ -33,7 +34,13 @@ class DoctorSignup(BaseModel):
     confirm_license: bool
 
 
-@router.post("/auth/patient/signup")
+@router.post(
+    "/auth/patient/signup",
+    response_model=PatientSignupResponse,
+    status_code=201,
+    responses={400: {"model": ErrorResponse}, 409: {"model": ErrorResponse}, 503: {"model": ErrorResponse}},
+    summary="Sign up as a patient",
+)
 async def patient_signup(
     body: PatientSignup,
     repository: ConversationRepository = Depends(get_repository),
@@ -52,7 +59,13 @@ async def patient_signup(
     return {"patient_id": row["id"], "access_token": access_token}
 
 
-@router.post("/auth/doctor/signup")
+@router.post(
+    "/auth/doctor/signup",
+    response_model=DoctorSignupResponse,
+    status_code=201,
+    responses={400: {"model": ErrorResponse}, 409: {"model": ErrorResponse}, 422: {"model": ErrorResponse}, 503: {"model": ErrorResponse}},
+    summary="Sign up as a doctor (dummy license verify)",
+)
 async def doctor_signup(
     body: DoctorSignup,
     repository: ConversationRepository = Depends(get_repository),

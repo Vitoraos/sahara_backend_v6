@@ -53,7 +53,13 @@ def _webhook_authorized(request: Request, settings: Settings) -> bool:
     return hmac.compare_digest(supplied, settings.africas_talking_webhook_secret)
 
 
-@router.post("/voice/webhook")
+@router.post(
+    "/voice/webhook",
+    responses={403: {"description": "Invalid webhook secret"}},
+    summary="Africa's Talking inbound-call callback",
+    description="Accepts `application/x-www-form-urlencoded` (callerNumber, sessionId, isActive) "
+    "and returns TwiML XML (`<Say>`, `<GetDigits>`, `<Record>`, `<Dial>`).",
+)
 async def voice_webhook(request: Request) -> Response:
     """Africa's Talking inbound-call callback.
 
@@ -93,7 +99,13 @@ async def voice_webhook(request: Request) -> Response:
         return _xml(_say("I am unable to start the health assessment right now. Please contact a healthcare professional."))
 
 
-@router.post("/voice/consent")
+@router.post(
+    "/voice/consent",
+    responses={403: {"description": "Invalid webhook secret"}},
+    summary="Recording-consent IVR callback",
+    description="Accepts form-data (`conversation_id`, `dtmfDigits`) and returns TwiML XML. "
+    "Digit 1 starts recorded triage turns; anything else escalates without recording.",
+)
 async def voice_consent(request: Request) -> Response:
     form = await request.form()
     conversation_id_raw = str(form.get("conversation_id") or request.query_params.get("conversation_id") or "").strip()
@@ -125,7 +137,14 @@ async def voice_consent(request: Request) -> Response:
         return _xml(_say("I could not continue safely. Please contact a healthcare professional now."))
 
 
-@router.post("/voice/recording")
+@router.post(
+    "/voice/recording",
+    responses={403: {"description": "Invalid webhook secret"}},
+    summary="One recorded triage turn",
+    description="Accepts form-data (`conversation_id`, `recordingUrl`, `recording_consent`), runs "
+    "STT → safety/triage → auto-routing, and returns the next TwiML XML prompt including the "
+    "appointment time once triage is reached.",
+)
 async def voice_recording(request: Request) -> Response:
     """Process one AT recording and return the next XML prompt.
 
