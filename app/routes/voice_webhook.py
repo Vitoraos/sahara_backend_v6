@@ -18,6 +18,7 @@ from app.integrations.conversation_repository import ConversationRepository
 from app.integrations.supabase_client import create_supabase
 from app.pipeline.intron_stream import IntronConfig, IntronSTTStream
 from app.pipeline.pipecat_pipeline import ConversationContext, ConversationPipeline
+from app.scheduling import route_appointment
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["voice"])
@@ -174,12 +175,25 @@ async def voice_recording(request: Request) -> Response:
                 summary=result.triage_summary or "Triage completed; clinician review required.",
             )
             await repository.finish_conversation(conversation_id, status="triage")
+            # Auto-route to the earliest free doctor slot. Fail-soft: the
+            # patient still hears the triage outcome even with no availability.
+            appointment_time = ""
+            try:
+                appointment = await route_appointment(
+                    repository,
+                    patient_id=patient_id,
+                    conversation_id=conversation_id,
+                    tier=result.urgency_tier or "AMBER",
+                )
+                appointment_time = f" Your appointment is scheduled for {_speakable_time(str(appointment.get('scheduled_at')))}."
+            except Exception as exc:
+                logger.warning("auto-routing failed", extra={"error_type": type(exc).__name__})
             if result.urgency_tier == "RED" and settings.escalation_phone_number:
                 return _xml(
                     _say("This may be an emergency. I will connect you with a healthcare professional now. Please stay on the line."),
                     f'<Dial phoneNumbers="{html.escape(settings.escalation_phone_number, quote=True)}"/>',
                 )
-            return _xml(_say(result.response_text))
+            return _xml(_say(result.response_text + appointment_time))
         if result.state.value == "ESCALATE":
             await repository.finish_conversation(conversation_id, status="escalated")
             return _xml(_say(result.response_text))
@@ -269,3 +283,8 @@ def _event_text(event: dict[str, Any]) -> str:
         if isinstance(value, str):
             return value
     return ""
+
+
+def _speakable_time(scheduled_at: str) -> str:
+    # "2026-09-16T09:25:00+00:00" -> "2026-09-16 at 09:25 UTC".
+    return scheduled_at[:16].replace("T", " at ") + " UTC"

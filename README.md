@@ -33,7 +33,18 @@ Copy `.env.example` to `.env` and populate at least:
 - `REQUIRED_TRIAGE_FIELDS`
 - `DANGER_SIGN_PHRASES`
 - `SUPABASE_SERVICE_ROLE_KEY` (server-only; required for persistence)
+- `SUPABASE_ANON_KEY` (required for `/auth/*/signup`)
 - `BASE_URL` for Africa's Talking callbacks
+
+Apply `migrations/005_scheduling.sql` in the Supabase SQL Editor (after 001-004).
+
+## Signup, availability, and auto-routing
+
+- `POST /api/auth/patient/signup {name, phone_number, email, password}` and `POST /api/auth/doctor/signup {…license_number, specialty, confirm_license}` create the Supabase Auth user, then the profile row, and return `{access_token}`. Turn **off "Confirm email"** in Supabase Auth settings or signup returns a null token (profile still created; user signs in after confirming).
+- Doctor verify is dummy: any non-empty license/specialty plus the checkbox is accepted. Check a real register before production.
+- Doctors set weekly windows (UTC, one start/end per weekday) via `PUT /api/clinician/availability`; days with no window are unavailable.
+- After triage the voice agent auto-books the earliest free 25-minute slot across all doctors (next 7 days, UTC): the phone channel appends the time to its reply; the web client calls `POST /api/appointments/route {conversation_id}`. Patients read their time at `GET /api/appointments`.
+- `GET /api/clinician/queue` embeds each appointment's patient `{name, phone_number, email}` and the voice-agent `triage_report`.
 
 The generated triage vocabulary is a candidate community-health safety configuration and must be clinically reviewed/localized before production deployment. `REQUIRED_TRIAGE_FIELDS` and `DANGER_SIGN_PHRASES` are comma-separated configuration values.
 

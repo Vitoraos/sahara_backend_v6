@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
 from app.routes.appointments import router as appointments_router
+from app.routes.auth import router as auth_router
 from app.routes.calls import router as calls_router
 from app.routes.clinician import router as clinician_router
 from app.routes.conversation import router as conversation_router
@@ -25,6 +26,7 @@ app.add_middleware(
 )
 
 app.include_router(health_router, prefix=settings.api_prefix)
+app.include_router(auth_router, prefix=settings.api_prefix)
 app.include_router(conversation_router, prefix=settings.api_prefix)
 app.include_router(voice_router, prefix=settings.api_prefix)
 app.include_router(appointments_router, prefix=settings.api_prefix)

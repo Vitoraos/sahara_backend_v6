@@ -338,6 +338,127 @@ class ConversationRepository:
             results.append({**conversation, "triage_result": triage})
         return results
 
+    async def create_patient_profile(
+        self, *, name: str, phone_number: str, email: str, auth_user_id: UUID
+    ) -> dict[str, Any]:
+        return await self._insert_one(
+            "patients",
+            {
+                "name": name,
+                "phone_number": phone_number,
+                "email": email,
+                "auth_user_id": str(auth_user_id),
+            },
+        )
+
+    async def create_clinician_profile(
+        self,
+        *,
+        name: str,
+        phone_number: str,
+        email: str,
+        auth_user_id: UUID,
+        license_number: str,
+        specialty: str,
+    ) -> dict[str, Any]:
+        return await self._insert_one(
+            "clinicians",
+            {
+                "name": name,
+                "phone_number": phone_number,
+                "email": email,
+                "auth_user_id": str(auth_user_id),
+                "license_number": license_number,
+                "specialty": specialty,
+            },
+        )
+
+    async def replace_availability(
+        self, *, doctor_id: UUID, windows: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        await asyncio.wait_for(
+            self._db.table("doctor_availability")
+            .delete()
+            .eq("doctor_id", str(doctor_id))
+            .execute(),
+            timeout=self._timeout,
+        )
+        rows: list[dict[str, Any]] = []
+        for window in windows:
+            rows.append(
+                await self._insert_one(
+                    "doctor_availability",
+                    {
+                        "doctor_id": str(doctor_id),
+                        "weekday": window["weekday"],
+                        "start_time": window["start_time"],
+                        "end_time": window["end_time"],
+                    },
+                )
+            )
+        return rows
+
+    async def availability_for_doctor(self, doctor_id: UUID) -> list[dict[str, Any]]:
+        response = await asyncio.wait_for(
+            self._db.table("doctor_availability")
+            .select("*")
+            .eq("doctor_id", str(doctor_id))
+            .order("weekday")
+            .execute(),
+            timeout=self._timeout,
+        )
+        return response.data if isinstance(response.data, list) else []
+
+    async def all_availability(self) -> list[dict[str, Any]]:
+        response = await asyncio.wait_for(
+            self._db.table("doctor_availability")
+            .select("*")
+            .order("doctor_id")
+            .order("weekday")
+            .execute(),
+            timeout=self._timeout,
+        )
+        return response.data if isinstance(response.data, list) else []
+
+    async def booked_slots(self, *, since_iso: str, until_iso: str) -> list[dict[str, Any]]:
+        response = await asyncio.wait_for(
+            self._db.table("appointments")
+            .select("doctor_id,scheduled_at")
+            .neq("status", "cancelled")
+            .gte("scheduled_at", since_iso)
+            .lt("scheduled_at", until_iso)
+            .execute(),
+            timeout=self._timeout,
+        )
+        return response.data if isinstance(response.data, list) else []
+
+    async def create_appointment(
+        self,
+        *,
+        patient_id: UUID,
+        conversation_id: UUID | None,
+        tier: str,
+        doctor_id: UUID,
+        scheduled_at: str,
+        status: str = "scheduled",
+    ) -> dict[str, Any]:
+        return await self._insert_one(
+            "appointments",
+            {
+                "patient_id": str(patient_id),
+                "conversation_id": str(conversation_id) if conversation_id else None,
+                "tier": tier,
+                "doctor_id": str(doctor_id),
+                "scheduled_at": scheduled_at,
+                "status": status,
+            },
+        )
+
+    async def triage_for_conversation(self, conversation_id: UUID) -> dict[str, Any] | None:
+        return await self._select_one(
+            "triage_results", "*", {"conversation_id": str(conversation_id)}
+        )
+
     async def _insert_one(self, table: str, payload: dict[str, Any]) -> dict[str, Any]:
         response = await asyncio.wait_for(
             self._db.table(table).insert(payload).execute(),
