@@ -2,6 +2,8 @@ import pytest
 
 from app.dialogue.field_schema import ExtractedFields
 from app.dialogue.voice_map import normalize_code, resolve_voice
+from app.pipeline.intron_stream import _is_not_ready as _stt_not_ready
+from app.pipeline.intron_tts import _is_not_ready as _tts_not_ready
 from app.pipeline.pipecat_pipeline import ConversationContext, ConversationPipeline, maybe_lock_voice
 from app.dialogue.danger_matcher import DangerMatcher
 from app.dialogue.response_generation import SafeFallbackResponseGenerator
@@ -25,6 +27,14 @@ def test_resolve_voice():
     assert resolve_voice("ha", default_accent="yoruba") == ("ha", "hausa")
     assert resolve_voice("yo", default_accent="yoruba") == ("yo", "yoruba")
     assert resolve_voice("en", default_accent="swahili") == ("en", "swahili")
+
+
+def test_not_ready_detection():
+    cold = {"message_type": "RESOURCE_EXHAUSTED", "status": "NOT_READY", "message": "Required language not available, please wait 30 seconds"}
+    assert _stt_not_ready(cold) is True
+    assert _tts_not_ready(cold) is True
+    assert _stt_not_ready({"message_type": "SESSION_CREATED"}) is False
+    assert _stt_not_ready({"message_type": "AUTHENTICATION_ERROR"}) is False
 
 
 def test_lock_switches_once_then_never():

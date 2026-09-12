@@ -1,7 +1,16 @@
+from __future__ import annotations
+
+import asyncio
+import contextlib
+import logging
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
+from app.dialogue.voice_map import ALLOWED_LANGUAGES
 from app.routes.appointments import router as appointments_router
 from app.routes.auth import router as auth_router
 from app.routes.calls import router as calls_router
@@ -14,7 +23,45 @@ from app.routes.voice_webhook import router as voice_router
 
 settings = get_settings()
 
+logger = logging.getLogger(__name__)
+
+
+async def _warm_voice_models() -> None:
+    """Pre-loads Intron language models so first user sessions don't hit
+    cold-model NOT_READY. Runs in the background: boot never waits on it,
+    and any failure only logs — calls fall back to connect-time retries."""
+    if not settings.intron_api_key:
+        return
+    from app.routes.conversation import build_stt, build_tts, default_accent
+
+    for code in ALLOWED_LANGUAGES:
+        stt = build_stt(settings, language=code)
+        try:
+            await stt.connect()
+        except Exception as exc:
+            logger.warning("stt warm-up failed", extra={"language": code, "error_type": type(exc).__name__})
+        else:
+            with contextlib.suppress(Exception):
+                await stt.close()
+    if default_accent(settings) and settings.intron_tts_voice_gender:
+        tts = build_tts(settings)
+        try:
+            await tts.connect()
+        except Exception as exc:
+            logger.warning("tts warm-up failed", extra={"error_type": type(exc).__name__})
+        else:
+            with contextlib.suppress(Exception):
+                await tts.close()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    asyncio.create_task(_warm_voice_models())
+    yield
+
+
 app = FastAPI(
+    lifespan=lifespan,
     title=settings.app_name,
     version="1.0.0",
     summary="Conversational health-triage voice agent: Supabase-backed triage, scheduling, and clinician workflows.",

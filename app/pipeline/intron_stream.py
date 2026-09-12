@@ -4,11 +4,28 @@ import asyncio
 import base64
 import dataclasses
 import json
+import logging
 from dataclasses import dataclass
 from typing import Any
 
 import websockets
 from websockets.asyncio.client import ClientConnection, connect
+
+logger = logging.getLogger(__name__)
+
+# Intron lazily loads language models: the first session on a cold model
+# answers RESOURCE_EXHAUSTED/NOT_READY ("please wait 30 seconds") instead of
+# SESSION_CREATED. Retry with the server-suggested wait instead of failing
+# the call.
+NOT_READY_RETRIES = 2
+NOT_READY_WAIT_SECONDS = 30.0
+
+
+def _is_not_ready(message: dict[str, Any]) -> bool:
+    if message.get("message_type") != "RESOURCE_EXHAUSTED":
+        return False
+    text = f"{message.get('status', '')} {message.get('message', '')}".upper()
+    return "NOT_READY" in text or "WAIT" in text
 
 
 class IntronProtocolError(RuntimeError):
@@ -52,15 +69,29 @@ class IntronSTTStream:
 
     async def connect(self) -> dict[str, Any]:
         self._next_ack_id = 1
-        self._ws = await connect(
-            self._url(),
-            additional_headers={"Authorization": f"Bearer {self._config.api_key}"},
-            open_timeout=10,
-        )
-        message = await self._receive_json()
-        if message.get("message_type") != "SESSION_CREATED":
+        for attempt in range(NOT_READY_RETRIES + 1):
+            self._ws = await connect(
+                self._url(),
+                additional_headers={"Authorization": f"Bearer {self._config.api_key}"},
+                open_timeout=10,
+            )
+            try:
+                message = await self._receive_json()
+            except Exception:
+                await self.close()
+                raise
+            if message.get("message_type") == "SESSION_CREATED":
+                return message
+            await self.close()
+            if _is_not_ready(message) and attempt < NOT_READY_RETRIES:
+                logger.warning(
+                    "intron STT model cold; retrying after wait",
+                    extra={"language": self._config.language, "attempt": attempt + 1},
+                )
+                await asyncio.sleep(NOT_READY_WAIT_SECONDS)
+                continue
             raise IntronProtocolError(f"Expected SESSION_CREATED, got {message.get('message_type')}")
-        return message
+        raise IntronProtocolError("Intron STT model stayed cold after retries")
 
     async def send_audio(self, pcm16le: bytes, ack_id: int | None = None) -> int:
         if self._ws is None:

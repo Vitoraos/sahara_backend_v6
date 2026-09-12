@@ -3,11 +3,26 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+import logging
 from dataclasses import dataclass
 from typing import Any, AsyncIterator
 from urllib.parse import urlencode
 
 from websockets.asyncio.client import ClientConnection, connect
+
+logger = logging.getLogger(__name__)
+
+# Same cold-model behavior as STT: first session on an unloaded accent
+# answers RESOURCE_EXHAUSTED/NOT_READY instead of SESSION_CREATED.
+NOT_READY_RETRIES = 2
+NOT_READY_WAIT_SECONDS = 30.0
+
+
+def _is_not_ready(message: dict[str, Any]) -> bool:
+    if message.get("message_type") != "RESOURCE_EXHAUSTED":
+        return False
+    text = f"{message.get('status', '')} {message.get('message', '')}".upper()
+    return "NOT_READY" in text or "WAIT" in text
 
 
 class IntronTTSProtocolError(RuntimeError):
@@ -69,15 +84,29 @@ class IntronTTSStream:
         if not self._config.api_key:
             raise IntronTTSProtocolError("INTRON_API_KEY is not configured")
         self._next_chunk_id = 1
-        self._ws = await connect(
-            self._url(),
-            additional_headers={"Authorization": f"Bearer {self._config.api_key}"},
-            open_timeout=self._config.request_timeout_seconds,
-        )
-        event = await self._receive_json()
-        if event.get("message_type") != "SESSION_CREATED":
+        for attempt in range(NOT_READY_RETRIES + 1):
+            self._ws = await connect(
+                self._url(),
+                additional_headers={"Authorization": f"Bearer {self._config.api_key}"},
+                open_timeout=self._config.request_timeout_seconds,
+            )
+            try:
+                event = await self._receive_json()
+            except Exception:
+                await self.close()
+                raise
+            if event.get("message_type") == "SESSION_CREATED":
+                return event
+            await self.close()
+            if _is_not_ready(event) and attempt < NOT_READY_RETRIES:
+                logger.warning(
+                    "intron TTS voice cold; retrying after wait",
+                    extra={"language": self._config.language, "attempt": attempt + 1},
+                )
+                await asyncio.sleep(NOT_READY_WAIT_SECONDS)
+                continue
             raise IntronTTSProtocolError(f"Expected SESSION_CREATED, got {event.get('message_type')}")
-        return event
+        raise IntronTTSProtocolError("Intron TTS voice stayed cold after retries")
 
     async def send_text(self, text: str, ack_id: int | None = None) -> int:
         if self._ws is None:
