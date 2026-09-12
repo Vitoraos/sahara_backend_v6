@@ -74,7 +74,7 @@ def build_tts(settings: Settings, *, language: str | None = None, accent: str | 
         IntronTTSConfig(
             endpoint=settings.intron_tts_endpoint,
             api_key=settings.intron_api_key,
-            voice_accent=accent or settings.intron_tts_voice_accent or settings.intron_tts_voice,
+            voice_accent=accent or settings.intron_tts_voice_accent,
             voice_gender=settings.intron_tts_voice_gender,
             language=normalize_code(language) or settings.intron_tts_language,
             output_audio_format=settings.intron_tts_output_audio_format,
@@ -85,7 +85,7 @@ def build_tts(settings: Settings, *, language: str | None = None, accent: str | 
 
 
 def default_accent(settings: Settings) -> str:
-    return settings.intron_tts_voice_accent or settings.intron_tts_voice
+    return settings.intron_tts_voice_accent
 
 
 @router.websocket("/conversations/ws")

@@ -240,7 +240,7 @@ def build_pipecat_pipeline(
                 # Voice lock engaged: rebuild TTS voice and STT input for the
                 # rest of the session. STT picks it up on its next reconnect
                 # (it already re-opens after every committed utterance).
-                language, accent = resolve_voice(turn_result.session_language, default_accent=settings.intron_tts_voice_accent or settings.intron_tts_voice)
+                language, accent = resolve_voice(turn_result.session_language, default_accent=settings.intron_tts_voice_accent)
                 stt.set_language(language)
                 await tts_processor.set_voice(tts_factory(language, accent))
 

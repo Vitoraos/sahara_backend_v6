@@ -37,6 +37,37 @@ def test_not_ready_detection():
     assert _stt_not_ready({"message_type": "AUTHENTICATION_ERROR"}) is False
 
 
+@pytest.mark.asyncio
+async def test_phone_session_language_prefers_last_confident_turn():
+    from types import SimpleNamespace
+    from uuid import uuid4
+
+    from app.routes.voice_webhook import _session_language
+
+    settings = SimpleNamespace(voice_lock_confidence=0.6)
+
+    class Repo:
+        async def patient_by_id(self, patient_id):
+            return {"preferred_language": "ha"}
+
+        async def last_turn_language(self, conversation_id):
+            return {"languages": ["yo"], "confidence": 0.9}
+
+    assert await _session_language(Repo(), uuid4(), uuid4(), settings) == "yo"
+
+    class QuietRepo(Repo):
+        async def last_turn_language(self, conversation_id):
+            return {"languages": ["yo"], "confidence": 0.1}
+
+    assert await _session_language(QuietRepo(), uuid4(), uuid4(), settings) == "ha"
+
+    class EmptyRepo(Repo):
+        async def last_turn_language(self, conversation_id):
+            return {}
+
+    assert await _session_language(EmptyRepo(), uuid4(), uuid4(), settings) == "ha"
+
+
 def test_lock_switches_once_then_never():
     context = ConversationContext(session_language="en")
     assert maybe_lock_voice(context, detected("Hausa")) == "ha"

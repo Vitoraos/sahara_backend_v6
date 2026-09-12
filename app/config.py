@@ -35,7 +35,6 @@ class Settings(BaseSettings):
     africas_talking_username: str = ''
     africas_talking_api_key: str = ''
     intron_tts_endpoint: str = 'wss://infer.voice.intron.io/tts/v1/stream'
-    intron_tts_voice: str = ''
     intron_tts_voice_accent: str = ''
     intron_tts_voice_gender: str = ''
     intron_tts_language: str = 'en'

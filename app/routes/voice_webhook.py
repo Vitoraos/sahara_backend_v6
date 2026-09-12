@@ -12,6 +12,7 @@ from fastapi.responses import Response
 from app.config import Settings, get_settings
 from app.dialogue.danger_matcher import DangerMatcher
 from app.dialogue.field_schema import RequiredFieldPolicy
+from app.dialogue.voice_map import DEFAULT_LANGUAGE, normalize_code
 from app.dialogue.llm_provider import OpenRouterClient, OpenRouterExtractionProvider, OpenRouterResponseGenerator
 from app.dialogue.response_generation import SafeFallbackResponseGenerator
 from app.integrations.conversation_repository import ConversationRepository
@@ -172,10 +173,11 @@ async def voice_recording(request: Request) -> Response:
         if not recording_url:
             return _xml(_say("I did not receive your recording. Please try again."))
 
-        transcript = await _transcribe_recording(recording_url, settings)
+        session_language = await _session_language(repository, patient_id, conversation_id, settings)
+        transcript = await _transcribe_recording(recording_url, settings, language=session_language)
         pipeline = _build_pipeline(settings)
         previous_turn, previous_fields = await repository.load_context(conversation_id)
-        context = ConversationContext(turn_number=previous_turn, fields=previous_fields)
+        context = ConversationContext(turn_number=previous_turn, fields=previous_fields, session_language=session_language)
         result = await pipeline.process_turn(transcript, context)
         await repository.save_turn(
             conversation_id=conversation_id,
@@ -239,6 +241,7 @@ def _build_pipeline(settings: Settings) -> ConversationPipeline:
         danger_matcher=danger,
         response_generator=responder,
         required_fields_checker=policy.is_complete,
+        voice_lock_confidence=settings.voice_lock_confidence,
     )
 
 
@@ -247,7 +250,35 @@ class _UnavailableExtractor:
         raise RuntimeError("OPENROUTER_API_KEY is not configured")
 
 
-async def _transcribe_recording(url: str, settings: Settings) -> str:
+async def _session_language(
+    repository: ConversationRepository,
+    patient_id: UUID,
+    conversation_id: UUID,
+    settings: Settings,
+) -> str:
+    """Signup preference, overridden by the last confidently detected turn.
+
+    Each phone turn is a separate HTTP callback with a fresh context, so the
+    turns table (not memory) carries continuity across turns.
+    """
+    preference = DEFAULT_LANGUAGE
+    try:
+        patient = await repository.patient_by_id(patient_id)
+        preference = normalize_code((patient or {}).get("preferred_language")) or DEFAULT_LANGUAGE
+    except Exception as exc:
+        logger.warning("phone preference lookup failed", extra={"error_type": type(exc).__name__})
+    try:
+        last = await repository.last_turn_language(conversation_id)
+        codes = [code for language in last.get("languages", ()) if (code := normalize_code(language))]
+        confidence = last.get("confidence")
+        if codes and isinstance(confidence, (int, float)) and confidence >= settings.voice_lock_confidence:
+            return codes[0]
+    except Exception as exc:
+        logger.warning("phone language reseed failed", extra={"error_type": type(exc).__name__})
+    return preference
+
+
+async def _transcribe_recording(url: str, settings: Settings, *, language: str | None = None) -> str:
     # AT records are documented as WAV/MP3. Decode/convert to PCM locally when
     # ffmpeg is present, then send compliant 1-32KB PCM chunks to Intron.
     import tempfile
@@ -275,7 +306,7 @@ async def _transcribe_recording(url: str, settings: Settings) -> str:
             sample_rate=settings.intron_stt_sample_rate,
             bit_rate=settings.intron_stt_bit_rate,
             num_channels=settings.intron_stt_channels,
-            language=settings.intron_stt_language,
+            language=normalize_code(language) or settings.intron_stt_language,
         ))
         await stream.connect()
         try:

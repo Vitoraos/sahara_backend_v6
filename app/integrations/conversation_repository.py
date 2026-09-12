@@ -94,6 +94,24 @@ class ConversationRepository:
                     fields.update(extracted)
         return max_turn, fields
 
+    async def last_turn_language(self, conversation_id: UUID) -> dict[str, Any]:
+        """detected_language payload of the most recent turn, or {}."""
+        response = await asyncio.wait_for(
+            self._db.table("turns")
+            .select("detected_language")
+            .eq("conversation_id", str(conversation_id))
+            .order("turn_number", desc=True)
+            .limit(1)
+            .execute(),
+            timeout=self._timeout,
+        )
+        data = response.data
+        if isinstance(data, list) and data:
+            row = data[0]
+            if isinstance(row, dict) and isinstance(row.get("detected_language"), dict):
+                return dict(row["detected_language"])
+        return {}
+
     async def record_phone_consent(self, *, conversation_id: UUID, consented: bool) -> None:
         await asyncio.wait_for(
             self._db.table("conversation_recording_consents")
