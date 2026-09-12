@@ -10,7 +10,7 @@ This version moves the backend from a scaffold to a provider-backed, persistent,
 2. Dependency/config boundaries.
 3. Safety-first extraction + hardcoded danger-phrase gate.
 4. Configurable clinical required-field policy (field names are not invented; populate them from the authoritative clinical specification).
-5. NVIDIA NIM extraction/response provider with bounded timeout/retry behavior.
+5. OpenRouter extraction/response provider with bounded timeout/retry behavior.
 6. Hardcoded English danger-phrase gate (no translation step).
 7. Intron streaming STT WebSocket client.
 8. Intron streaming TTS WebSocket client and audio relay.
@@ -25,9 +25,8 @@ The backend preserves the project's non-negotiable safety rule: a turn reaches `
 
 Copy `.env.example` to `.env` and populate at least:
 
-- `INTRON_STT_API_KEY`
-- `INTRON_TTS_API_KEY`
-- `NVIDIA_API_KEY`
+- `INTRON_API_KEY` (shared by STT and TTS)
+- `OPENROUTER_API_KEY`
 - `REDIS_URL` (Upstash `rediss://` endpoint)
 - `CORS_ALLOWED_ORIGINS` (comma-separated frontend origins)
 - `REQUIRED_TRIAGE_FIELDS`
@@ -63,6 +62,8 @@ Client endpoint:
 ```text
 WS /api/conversations/ws
 ```
+
+Auth: `Authorization: Bearer <supabase_jwt>` header, or `?token=<supabase_jwt>` query param for browsers (header takes priority).
 
 Client audio message:
 
@@ -136,7 +137,7 @@ Set `INTRON_TTS_VOICE_ACCENT` and `INTRON_TTS_VOICE_GENDER` to values supported 
 
 ## Changes in this pass
 
-- **LLM provider swapped from Claude to NVIDIA NIM.** `app/dialogue/llm_provider.py` now calls `https://integrate.api.nvidia.com/v1/chat/completions` (OpenAI-compatible, verified against NVIDIA's public docs) instead of Anthropic's Messages API. Set `NVIDIA_API_KEY` (not `CLAUDE_API_KEY`, which no longer exists). Free-tier NVIDIA accounts get a best-effort ~40 RPM per model with no guaranteed SLA — fine for demo volume, not load-tested.
+- **LLM provider is OpenRouter.** `app/dialogue/llm_provider.py` calls `https://openrouter.ai/api/v1/chat/completions` (OpenAI-compatible). Set `OPENROUTER_API_KEY` plus the `OPENROUTER_*_MODEL` names.
 - **Portal routes implemented** (previously empty 3-line stubs, not registered in `main.py`):
   - `GET /api/appointments` — patient's own appointments
   - `GET /api/history` — patient's conversation history with triage outcomes

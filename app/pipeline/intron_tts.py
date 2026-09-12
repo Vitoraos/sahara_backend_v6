@@ -63,7 +63,7 @@ class IntronTTSStream:
 
     async def connect(self) -> dict[str, Any]:
         if not self._config.api_key:
-            raise IntronTTSProtocolError("INTRON_TTS_API_KEY is not configured")
+            raise IntronTTSProtocolError("INTRON_API_KEY is not configured")
         self._next_chunk_id = 1
         self._ws = await connect(
             self._url(),

@@ -51,14 +51,14 @@ def build_pipeline(settings: Settings) -> ConversationPipeline:
 
 class _UnavailableExtractionProvider:
     async def extract(self, transcript: str) -> ExtractedFields:
-        raise RuntimeError("NVIDIA_API_KEY is not configured")
+        raise RuntimeError("OPENROUTER_API_KEY is not configured")
 
 
 def build_stt(settings: Settings) -> IntronSTTStream:
     return IntronSTTStream(
         IntronConfig(
             endpoint=settings.intron_stt_endpoint,
-            api_key=settings.intron_stt_api_key,
+            api_key=settings.intron_api_key,
             sample_rate=settings.intron_stt_sample_rate,
             bit_rate=settings.intron_stt_bit_rate,
             num_channels=settings.intron_stt_channels,
@@ -71,7 +71,7 @@ def build_tts(settings: Settings) -> IntronTTSStream:
     return IntronTTSStream(
         IntronTTSConfig(
             endpoint=settings.intron_tts_endpoint,
-            api_key=settings.intron_tts_api_key,
+            api_key=settings.intron_api_key,
             voice_accent=settings.intron_tts_voice_accent or settings.intron_tts_voice,
             voice_gender=settings.intron_tts_voice_gender,
             language=settings.intron_tts_language,
@@ -91,7 +91,8 @@ async def conversation_websocket(websocket: WebSocket) -> None:
     COMMITTED_TRANSCRIPT, TRIAGE_UPDATE {state, danger_sign_fired,
     danger_phrases, urgency_tier, triage_summary}, TTS_AUDIO_CHUNK,
     TTS_AUDIO_END, ERROR. Auth via `Authorization: Bearer <token>` header
-    (or `?patient_id=` when ALLOW_DEV_UNAUTHENTICATED in development).
+    (or `?token=<supabase_jwt>` query param for browsers, header takes
+    priority; or `?patient_id=` when ALLOW_DEV_UNAUTHENTICATED in development).
     """
     await websocket.accept()
     settings = get_settings()
@@ -100,7 +101,7 @@ async def conversation_websocket(websocket: WebSocket) -> None:
     runner_task: asyncio.Task[Any] | None = None
     terminal_status = "completed"
     try:
-        if not settings.intron_stt_api_key or not settings.intron_tts_api_key:
+        if not settings.intron_api_key:
             await _fail(websocket, "VOICE_PROVIDER_NOT_CONFIGURED")
             return
 
@@ -202,8 +203,13 @@ async def _resolve_patient(
     repository: ConversationRepository,
     settings: Settings,
 ) -> UUID | None:
-    auth = websocket.headers.get("authorization", "")
-    if auth.lower().startswith("bearer "):
+    candidates = [websocket.headers.get("authorization", "")]
+    query_token = websocket.query_params.get("token")
+    if query_token:
+        candidates.append(f"Bearer {query_token}")
+    for auth in candidates:
+        if not auth.lower().startswith("bearer "):
+            continue
         token = auth.split(" ", 1)[1].strip()
         if token:
             try:

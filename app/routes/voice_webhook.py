@@ -271,7 +271,7 @@ async def _transcribe_recording(url: str, settings: Settings) -> str:
         )
         stream = IntronSTTStream(IntronConfig(
             endpoint=settings.intron_stt_endpoint,
-            api_key=settings.intron_stt_api_key,
+            api_key=settings.intron_api_key,
             sample_rate=settings.intron_stt_sample_rate,
             bit_rate=settings.intron_stt_bit_rate,
             num_channels=settings.intron_stt_channels,

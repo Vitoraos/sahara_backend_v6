@@ -33,7 +33,7 @@ async def run_benchmark(
 ) -> list[BenchmarkResult]:
     """Runs each STT provider over every sample in the manifest, scoring
     WER against the reference transcript and (where reference_fields are
-    given) clinical entity accuracy via the same NVIDIA extraction path
+    given) clinical entity accuracy via the same OpenRouter extraction path
     used in the live pipeline — so the benchmark measures what the real
     system would actually recover, not transcription quality alone.
     """

@@ -20,8 +20,8 @@ class Settings(BaseSettings):
     redis_url: str = ''
     cors_allowed_origins: str = ''
 
+    intron_api_key: str = ''
     intron_stt_endpoint: str = 'wss://infer.voice.intron.io/stt/v1/stream'
-    intron_stt_api_key: str = ''
     intron_stt_language: str = 'en'
     intron_stt_sample_rate: int = 16000
     intron_stt_bit_rate: int = 16
@@ -35,7 +35,6 @@ class Settings(BaseSettings):
     africas_talking_username: str = ''
     africas_talking_api_key: str = ''
     intron_tts_endpoint: str = 'wss://infer.voice.intron.io/tts/v1/stream'
-    intron_tts_api_key: str = ''
     intron_tts_voice: str = ''
     intron_tts_voice_accent: str = ''
     intron_tts_voice_gender: str = ''
