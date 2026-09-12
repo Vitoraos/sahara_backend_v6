@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from supabase import acreate_client
 
 from app.config import Settings, get_settings
+from app.dialogue.voice_map import ALLOWED_LANGUAGES, normalize_code
 from app.integrations.conversation_repository import ConversationRepository
 from app.models.api_models import DoctorSignupResponse, ErrorResponse, PatientSignupResponse
 from app.routes.deps import get_repository
@@ -22,6 +23,7 @@ class PatientSignup(BaseModel):
     phone_number: str
     email: str
     password: str
+    preferred_language: str = "en"
 
 
 class DoctorSignup(BaseModel):
@@ -47,12 +49,16 @@ async def patient_signup(
     settings: Settings = Depends(get_settings),
 ) -> dict[str, Any]:
     user_id, access_token = await _sign_up_user(settings, email=body.email.strip(), password=body.password)
+    language = normalize_code(body.preferred_language)
+    if language is None:
+        raise HTTPException(status_code=422, detail=f"preferred_language must be one of: {', '.join(ALLOWED_LANGUAGES)}")
     try:
         row = await repository.create_patient_profile(
             name=body.name.strip(),
             phone_number=body.phone_number.strip(),
             email=body.email.strip(),
             auth_user_id=user_id,
+            preferred_language=language,
         )
     except Exception as exc:
         raise _conflict_or_raise(exc)

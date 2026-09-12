@@ -50,6 +50,10 @@ class IntronTTSStream:
         self._ws: ClientConnection | None = None
         self._next_chunk_id = 1
 
+    @property
+    def is_connected(self) -> bool:
+        return self._ws is not None
+
     def _url(self) -> str:
         if not self._config.voice_accent or not self._config.voice_gender:
             raise IntronTTSProtocolError("INTRON_TTS_VOICE_ACCENT and INTRON_TTS_VOICE_GENDER are required")

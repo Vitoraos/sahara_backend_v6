@@ -13,6 +13,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from app.config import Settings, get_settings
 from app.dialogue.danger_matcher import DangerMatcher
 from app.dialogue.field_schema import ExtractedFields, RequiredFieldPolicy
+from app.dialogue.voice_map import DEFAULT_LANGUAGE, normalize_code, resolve_voice
 from app.dialogue.llm_provider import OpenRouterClient, OpenRouterExtractionProvider, OpenRouterResponseGenerator
 from app.dialogue.response_generation import SafeFallbackResponseGenerator
 from app.integrations.conversation_repository import ConversationRepository
@@ -46,6 +47,7 @@ def build_pipeline(settings: Settings) -> ConversationPipeline:
         danger_matcher=danger_matcher,
         response_generator=responder,
         required_fields_checker=required_policy.is_complete,
+        voice_lock_confidence=settings.voice_lock_confidence,
     )
 
 
@@ -54,7 +56,7 @@ class _UnavailableExtractionProvider:
         raise RuntimeError("OPENROUTER_API_KEY is not configured")
 
 
-def build_stt(settings: Settings) -> IntronSTTStream:
+def build_stt(settings: Settings, *, language: str | None = None) -> IntronSTTStream:
     return IntronSTTStream(
         IntronConfig(
             endpoint=settings.intron_stt_endpoint,
@@ -62,24 +64,28 @@ def build_stt(settings: Settings) -> IntronSTTStream:
             sample_rate=settings.intron_stt_sample_rate,
             bit_rate=settings.intron_stt_bit_rate,
             num_channels=settings.intron_stt_channels,
-            language=settings.intron_stt_language,
+            language=normalize_code(language) or settings.intron_stt_language,
         )
     )
 
 
-def build_tts(settings: Settings) -> IntronTTSStream:
+def build_tts(settings: Settings, *, language: str | None = None, accent: str | None = None) -> IntronTTSStream:
     return IntronTTSStream(
         IntronTTSConfig(
             endpoint=settings.intron_tts_endpoint,
             api_key=settings.intron_api_key,
-            voice_accent=settings.intron_tts_voice_accent or settings.intron_tts_voice,
+            voice_accent=accent or settings.intron_tts_voice_accent or settings.intron_tts_voice,
             voice_gender=settings.intron_tts_voice_gender,
-            language=settings.intron_tts_language,
+            language=normalize_code(language) or settings.intron_tts_language,
             output_audio_format=settings.intron_tts_output_audio_format,
             sample_rate=settings.intron_tts_sample_rate,
             text_chunk_chars=settings.intron_tts_text_chunk_chars,
         )
     )
+
+
+def default_accent(settings: Settings) -> str:
+    return settings.intron_tts_voice_accent or settings.intron_tts_voice
 
 
 @router.websocket("/conversations/ws")
@@ -114,8 +120,10 @@ async def conversation_websocket(websocket: WebSocket) -> None:
         conversation_id = await repository.create_conversation(patient_id=patient_id, channel="web")
         previous_turn, previous_fields = await repository.load_context(conversation_id)
 
-        stt = build_stt(settings)
-        tts = build_tts(settings)
+        preference = await _preferred_language(repository, patient_id)
+        session_language, session_accent = resolve_voice(preference, default_accent=default_accent(settings))
+        stt = build_stt(settings, language=session_language)
+        tts = build_tts(settings, language=session_language, accent=session_accent)
         logic = build_pipeline(settings)
         task, commit_frame_type = build_pipecat_pipeline(
             websocket=websocket,
@@ -127,6 +135,8 @@ async def conversation_websocket(websocket: WebSocket) -> None:
             tts=tts,
             initial_turn_number=previous_turn,
             initial_fields=previous_fields,
+            initial_session_language=session_language,
+            tts_factory=lambda language, accent: build_tts(settings, language=language, accent=accent),
         )
         from pipecat.frames.frames import InputAudioRawFrame, InterruptionFrame, TTSSpeakFrame  # type: ignore[import-not-found]
         from pipecat.workers.runner import WorkerRunner  # type: ignore[import-not-found]
@@ -196,6 +206,16 @@ async def conversation_websocket(websocket: WebSocket) -> None:
             runner_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await runner_task
+
+
+async def _preferred_language(repository: ConversationRepository, patient_id: UUID) -> str:
+    """Signup-time voice preference; falls back to the default language."""
+    try:
+        patient = await repository.patient_by_id(patient_id)
+    except Exception as exc:
+        logger.warning("preference lookup failed; using default", extra={"error_type": type(exc).__name__})
+        return DEFAULT_LANGUAGE
+    return normalize_code((patient or {}).get("preferred_language")) or DEFAULT_LANGUAGE
 
 
 async def _resolve_patient(

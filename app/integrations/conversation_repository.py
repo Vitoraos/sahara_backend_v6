@@ -339,7 +339,7 @@ class ConversationRepository:
         return results
 
     async def create_patient_profile(
-        self, *, name: str, phone_number: str, email: str, auth_user_id: UUID
+        self, *, name: str, phone_number: str, email: str, auth_user_id: UUID, preferred_language: str = "en"
     ) -> dict[str, Any]:
         return await self._insert_one(
             "patients",
@@ -348,6 +348,7 @@ class ConversationRepository:
                 "phone_number": phone_number,
                 "email": email,
                 "auth_user_id": str(auth_user_id),
+                "preferred_language": preferred_language,
             },
         )
 

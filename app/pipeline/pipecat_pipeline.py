@@ -12,6 +12,7 @@ from app.dialogue.language_policy import LanguageProfile, LanguageSignal
 from app.dialogue.response_generation import ResponseGenerator
 from app.dialogue.state_machine import ConversationState
 from app.dialogue.triage_engine import TriageEngine
+from app.dialogue.voice_map import LOCK_CONFIDENCE, normalize_code
 
 
 @dataclass
@@ -25,6 +26,10 @@ class PipelineTurn:
     response_text: str
     urgency_tier: str | None = None
     triage_summary: str | None = None
+    # Canonical language code when this turn locked/switched the session
+    # voice; None means "no change". Consumed by the frame layer to rebuild
+    # the TTS voice (and STT input) for subsequent turns.
+    session_language: str | None = None
 
 
 @dataclass
@@ -33,6 +38,28 @@ class ConversationContext:
     state: ConversationState = ConversationState.COLLECTING
     turn_number: int = 0
     fields: dict[str, Any] = field(default_factory=dict)
+    session_language: str = "en"
+    voice_locked: bool = False
+
+
+def maybe_lock_voice(context: ConversationContext, extracted: ExtractedFields, *, threshold: float = LOCK_CONFIDENCE) -> str | None:
+    """Locks the session voice on the first confidently detected language.
+
+    Returns the new canonical code when the session switched, else None.
+    Never unlocks: after the first confident detection the voice is fixed
+    for the rest of the session.
+    """
+    if context.voice_locked:
+        return None
+    signal = _language_signal(extracted)
+    codes = [code for language in signal.languages if (code := normalize_code(language))]
+    if not codes or (signal.confidence or 0.0) < threshold:
+        return None
+    context.voice_locked = True
+    if codes[0] == context.session_language:
+        return None
+    context.session_language = codes[0]
+    return codes[0]
 
 
 RequiredFieldsChecker = Callable[[ExtractedFields], bool | Awaitable[bool]]
@@ -49,12 +76,14 @@ class ConversationPipeline:
         response_generator: ResponseGenerator,
         required_fields_checker: RequiredFieldsChecker,
         triage_engine: TriageEngine | None = None,
+        voice_lock_confidence: float = LOCK_CONFIDENCE,
     ) -> None:
         self._extractor = extraction_provider
         self._danger_matcher = danger_matcher
         self._response_generator = response_generator
         self._required_fields_checker = required_fields_checker
         self._triage_engine = triage_engine or TriageEngine()
+        self._voice_lock_confidence = voice_lock_confidence
 
     async def process_turn(self, transcript: str, context: ConversationContext) -> PipelineTurn:
         context.turn_number += 1
@@ -80,6 +109,7 @@ class ConversationPipeline:
             context.state = decision.state
             signal = _language_signal(extracted)
             context.profile.update(signal)
+            switched = maybe_lock_voice(context, extracted, threshold=self._voice_lock_confidence)
             response = await self._response_generator.generate(
                 transcript=transcript,
                 fields=accumulated,
@@ -99,6 +129,7 @@ class ConversationPipeline:
                 response_text=response,
                 urgency_tier=urgency,
                 triage_summary=summary,
+                session_language=switched,
             )
         except Exception as exc:
             # Fail-safe: any mid-turn failure escalates. Never silently continue.
@@ -148,10 +179,11 @@ class ConversationPipeline:
             danger_sign_fired=danger_fired,
         )
         context.state = decision.state
-        signal = _language_signal(extracted)
-        context.profile.update(signal)
+            signal = _language_signal(extracted)
+            context.profile.update(signal)
+            switched = maybe_lock_voice(context, extracted, threshold=self._voice_lock_confidence)
 
-        # Collect chunks from the generator and compute full response text
+            # Collect chunks from the generator and compute full response text
         chunks: list[str] = []
         try:
             async for chunk in self._response_generator.generate_stream(
@@ -184,9 +216,10 @@ class ConversationPipeline:
             danger_phrases=match.matched_phrases,
             state=decision.state,
             response_text=response_text,
-            urgency_tier=urgency,
-            triage_summary=summary,
-        ), chunks
+                urgency_tier=urgency,
+                triage_summary=summary,
+                session_language=switched,
+            ), chunks
 
 
 

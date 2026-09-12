@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import dataclasses
 import json
 from dataclasses import dataclass
 from typing import Any
@@ -31,6 +32,14 @@ class IntronSTTStream:
         self._config = config
         self._ws: ClientConnection | None = None
         self._next_ack_id = 1
+
+    def set_language(self, language: str) -> None:
+        """Switches the ASR input language for the next connection.
+
+        Takes effect on reconnect — the STT processor already drops and
+        re-opens the Intron stream after every committed utterance.
+        """
+        self._config = dataclasses.replace(self._config, language=language)
 
     def _url(self) -> str:
         params = (

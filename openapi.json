@@ -1447,6 +1447,11 @@
           "password": {
             "type": "string",
             "title": "Password"
+          },
+          "preferred_language": {
+            "type": "string",
+            "title": "Preferred Language",
+            "default": "en"
           }
         },
         "type": "object",

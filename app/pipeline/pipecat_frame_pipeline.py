@@ -6,7 +6,7 @@ import contextlib
 import json
 import logging
 from dataclasses import dataclass
-from typing import Any, AsyncIterator
+from typing import Any, AsyncIterator, Callable
 from uuid import UUID
 
 try:
@@ -15,6 +15,7 @@ except ImportError:
     DataFrame = object  # type: ignore
 
 from app.config import Settings
+from app.dialogue.voice_map import resolve_voice
 from app.persistence_outbox import ensure_flusher, persist_turn_result
 from app.pipeline.pipecat_pipeline import ConversationContext, ConversationPipeline
 from app.integrations.conversation_repository import ConversationRepository
@@ -66,6 +67,8 @@ def build_pipecat_pipeline(
     tts: IntronTTSStream,
     initial_turn_number: int = 0,
     initial_fields: dict[str, Any] | None = None,
+    initial_session_language: str = "en",
+    tts_factory: Callable[[str, str], IntronTTSStream] | None = None,
 ) -> tuple[Any, type[Any]]:
     """Build the production Pipecat frame graph.
 
@@ -119,6 +122,7 @@ def build_pipecat_pipeline(
     context = ConversationContext(
         turn_number=initial_turn_number,
         fields=dict(initial_fields or {}),
+        session_language=initial_session_language,
     )
     ensure_flusher(repository, settings)
 
@@ -232,6 +236,13 @@ def build_pipecat_pipeline(
 
             # Use streaming version to get LLM response chunks
             turn_result, chunks = await pipeline_logic.process_turn_stream(frame.text, context)
+            if turn_result.session_language and tts_factory is not None:
+                # Voice lock engaged: rebuild TTS voice and STT input for the
+                # rest of the session. STT picks it up on its next reconnect
+                # (it already re-opens after every committed utterance).
+                language, accent = resolve_voice(turn_result.session_language, default_accent=settings.intron_tts_voice_accent or settings.intron_tts_voice)
+                stt.set_language(language)
+                await tts_processor.set_voice(tts_factory(language, accent))
 
             # Buffer persistence off the speech path: one Redis round-trip
             # replaces two Supabase round-trips before first audio. A push
@@ -294,6 +305,24 @@ def build_pipecat_pipeline(
             self._tts_stream: IntronTTSStream | None = None
             self._buffer = ""
 
+        async def _ensure_tts(self) -> IntronTTSStream:
+            # ponytail: lazy connect also covers the pre-existing path where
+            # the streaming TTS session was never opened before first use.
+            if self._tts_stream is None:
+                self._tts_stream = tts
+            if not self._tts_stream.is_connected:
+                await self._tts_stream.connect()
+            return self._tts_stream
+
+        async def set_voice(self, stream: IntronTTSStream) -> None:
+            """Swaps the voice for subsequent responses (session lock)."""
+            old = self._tts_stream
+            self._tts_stream = stream
+            self._buffer = ""
+            if old is not None and old is not stream:
+                with contextlib.suppress(Exception):
+                    await old.close()
+
         async def process_frame(self, frame: Any, direction: FrameDirection) -> None:
             await super().process_frame(frame, direction)
             if isinstance(frame, StartFrame):
@@ -306,16 +335,15 @@ def build_pipecat_pipeline(
                 return
             if isinstance(frame, TTSStreamChunkFrame):
                 # Buffer LLM text chunks
-                if self._tts_stream is None:
-                    self._tts_stream = tts
+                tts_stream = await self._ensure_tts()
                 self._buffer += frame.text
                 # Send when buffer is large enough (10-100 chars)
                 while len(self._buffer) >= 20:
                     # Take up to 80 chars at a time
                     chunk = self._buffer[:80]
                     self._buffer = self._buffer[80:]
-                    chunk_id = await self._tts_stream.send_text(chunk)
-                    audio = await self._tts_stream.fetch_audio(chunk_id)
+                    chunk_id = await tts_stream.send_text(chunk)
+                    audio = await tts_stream.fetch_audio(chunk_id)
                     await self.push_frame(
                         EncodedTTSAudioFrame(
                             audio=audio,
@@ -326,9 +354,10 @@ def build_pipecat_pipeline(
                 return
             if isinstance(frame, TTSStreamEndFrame):
                 # Flush remaining buffer
+                tts_stream = await self._ensure_tts()
                 if self._buffer.strip():
-                    chunk_id = await self._tts_stream.send_text(self._buffer)
-                    audio = await self._tts_stream.fetch_audio(chunk_id)
+                    chunk_id = await tts_stream.send_text(self._buffer)
+                    audio = await tts_stream.fetch_audio(chunk_id)
                     await self.push_frame(
                         EncodedTTSAudioFrame(
                             audio=audio,
@@ -336,7 +365,7 @@ def build_pipecat_pipeline(
                         ),
                         direction,
                     )
-                await self._tts_stream.commit()
+                await tts_stream.commit()
                 await self.push_frame(TTSAudioEndFrame(), direction)
                 return
             await self.push_frame(frame, direction)
@@ -367,7 +396,9 @@ def build_pipecat_pipeline(
 
         async def cleanup(self) -> None:
             await self._cancel_speech()
-            await tts.close()
+            stream = self._tts_stream or tts
+            with contextlib.suppress(Exception):
+                await stream.close()
             await super().cleanup()
 
     class WebSocketOutputProcessor(FrameProcessor):
@@ -408,11 +439,12 @@ def build_pipecat_pipeline(
     class TTSAudioEndFrame(DataFrame):
         pass
 
+    tts_processor = IntronTTSProcessor()
     graph = Pipeline(
         [
             IntronSTTProcessor(),
             SafetyTriageProcessor(),
-            IntronTTSProcessor(),
+            tts_processor,
             WebSocketOutputProcessor(),
         ]
     )

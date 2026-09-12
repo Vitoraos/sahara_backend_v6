@@ -42,6 +42,7 @@ class Settings(BaseSettings):
     intron_tts_output_audio_format: str = 'wav'
     intron_tts_sample_rate: int = 48000
     intron_tts_text_chunk_chars: int = 100
+    voice_lock_confidence: float = 0.6
     required_triage_fields: str = ','.join(REQUIRED_TRIAGE_FIELDS)
     danger_sign_phrases: str = ','.join(DANGER_SIGN_PHRASES)
     persistence_timeout_seconds: float = 5.0

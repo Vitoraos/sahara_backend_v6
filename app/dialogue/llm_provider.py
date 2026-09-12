@@ -179,7 +179,9 @@ class OpenRouterExtractionProvider:
             "Do not diagnose, prescribe, or invent facts. Extract only information explicitly "
             "present in the patient utterance. Return ONLY valid JSON with this shape: "
             '{"fields": {"field_name": "value"}, "detected_language": '
-            '{"languages": ["iso-like codes"], "confidence": 0.0}}. '
+            '{"languages": ["en"|"ha"|"yo"|"ig"|"pcm"|"sw"], "confidence": 0.0}}. '
+            "Use only those ISO codes for detected languages (English, Hausa, "
+            "Yoruba, Igbo, Pidgin, Swahili). "
             f"Allowed field names: {field_list}. Unknown information must be omitted."
         )
         raw = await self._client.chat_text(system=system, user=transcript, max_tokens=400)
